@@ -84,6 +84,9 @@ sender guard and separate DM/group sessions must remain in force.
 Use `message(action: "emoji-list")` to discover the installed client's supported
 glyphs and keys. In the approved Teams conversation, use
 `message(action: "react", messageId: "<observed ID>", emoji: "👍")`.
+Delegated actions require the exact current Teams conversation and account;
+targeting Teams from a Telegram turn is rejected before adapter handoff. Start
+the shared-tool acceptance with a real addressed request in that Teams group.
 The same action with `remove: true` removes only that selected bot reaction.
 An omitted ID may use the current inbound Teams message, never one from another
 conversation/provider. Removal requires an explicit emoji; empty input does not
