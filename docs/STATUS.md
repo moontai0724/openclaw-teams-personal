@@ -1,7 +1,27 @@
 # Status
 
 Stage: new-group text/context/reply acceptance and isolated reconnect confirmed;
-registrar shutdown fix awaiting deployment.
+registrar shutdown fix deployed, production repair/replay check passed.
+
+2026-11-16 17:54:54 Asia/Taipei: runtime generation 5 loaded commit `ba379d4`
+without a Gateway restart, using the same deployment bridge. Reload receipt:
+`ok: true`, `restartRequired: false`, source digest
+`d074c8ff1d512fafd0171e4b5f32c6b3e453c75637acf22c6fb38390a9d6d6ca`.
+The account authenticated and registered at 17:54:55. Initial scoped repair and
+server-reported message-loss repair completed by 17:54:57. The subsequent channel
+snapshot reports `running: true`, `connected: true`, `lifecycle: ready`,
+`restartPending: false`, and `lastError: null`.
+
+Read-only checks after repair confirm that the endpoint, bot identity, approved
+chat scope, activation baselines and policy digest match the pre-reload snapshot.
+The new group's native ingress still has exactly the two original completed
+request rows, with unchanged completion times and no pending/failed rows. Its
+session still contains two requests and two replies. Platform readback at
+17:56:58 confirms six scoped messages, including exactly the two original bot
+replies and zero replies after reload. This establishes production repair of
+existing test traffic without duplicate dispatch/reply. No new scoped push was
+observed after reload; this does not establish recovery of a new message sent
+during a connection gap or a fresh post-reload model/reply turn.
 
 2026-11-16 17:46-17:47 Asia/Taipei: the owner accepted the new group's current
 behavior in Telegram topic 189, messages 226 and 228, and requested continuation.
@@ -13,10 +33,10 @@ untagged messages or edits. The agent used the current edited content; the conte
 cache intentionally replaces earlier versions, so an edit-before/after audit trail
 is not provided. Real message capture data is not committed.
 
-The next reliability patch prevents a late successful registrar response from
+The deployed reliability patch prevents a late successful registrar response from
 reporting connected or scheduling renewal after the session has stopped. A new
 test reproduces the race by aborting during response cleanup; it failed before
-the fix. All 27 tests and syntax checks now pass. This patch is not yet deployed.
+the fix. All 27 tests and syntax checks pass; generation 5 loaded this patch.
 
 2026-11-16 17:50-17:52 Asia/Taipei: two bounded receive-only runs used fresh
 isolated endpoints, without interrupting the production channel or invoking the
@@ -33,8 +53,9 @@ topic 189, message 221. This is one explicit allowlist addition, not automatic
 group enrollment. The channel now supports per-group routing, history and outbound
 guards; state migration adds only the new activation fence while preserving the
 existing DM/group cursors and endpoint.
-All 26 offline tests and syntax checks pass, including two-group ingress/reply
-isolation, legacy/existing-state migration, and rejection of pre-activation turns.
+At that stage, 26 offline tests and syntax checks passed, including two-group
+ingress/reply isolation, legacy/existing-state migration, and rejection of
+pre-activation turns.
 
 2026-11-16 17:40:01 Asia/Taipei: runtime generation 4 applied commit `2ac642a`
 without a Gateway restart. The selected entry remains the deployment bridge at
@@ -86,10 +107,20 @@ deployment bridge preserves the old entry for rollback. Groups are not auto-enro
    Native quoted-reply triggering remains a separate live acceptance item;
    retaining superseded text is not part of the current implementation.
 5. Confirmed: isolated real reconnect/authentication/registration/repair and four
-   historical event keys without duplication. Pending: a real message sent during
-   a connection gap, plus production native-queue recovery without duplicate reply.
+   historical event keys without duplication. Production reload repair also
+   preserves the two completed native request rows and two original platform
+   replies without duplicate dispatch/reply. Pending: a real new message sent
+   during a connection gap and its single recovered reply.
+6. Confirmed: the registrar shutdown race regression passes and the fix is loaded
+   in production generation 5. A fresh post-reload incoming/model/reply turn,
+   native quoted-reply triggering and long-running token refresh remain separate
+   live acceptance items.
 
 Live acceptance requires real Teams observations and is not proved by mocks.
-Deploy the registrar shutdown fix and inspect production repair/deduplication. A run without
-a real message during its gap cannot prove recovery of missed traffic. Do not
-expand chat scope, send test messages on the owner's behalf, or reset replay state.
+For the next live check, the owner can use Teams' native reply action on an
+existing bot reply without adding a mention; verify one new scoped event, one
+native request and one platform reply by readback. A controlled missed-message
+test then needs a coordinated real message during the reported connection gap.
+A run without a real message during its gap cannot prove recovery of missed
+traffic. Do not expand chat scope, send test messages on the owner's behalf, or
+reset replay state.
