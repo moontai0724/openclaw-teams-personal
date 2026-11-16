@@ -1,0 +1,73 @@
+# Live acceptance and recovery
+
+Only the existing bot identity and explicitly approved DM/group are authorized.
+Account-wide notifications may arrive at Trouter, but other chats must be dropped
+before caching, persistence or model dispatch. Real captures stay out of Git.
+
+## Receive-only CLI
+
+Copy `config.example.json` into private, gitignored `local/scope.json`, fill the
+exact test group and bot MRI, then validate it. Supply the absolute path to the
+existing approved auth module; do not copy its store or pass a token as an argument.
+
+```sh
+node src/cli.ts check --config local/scope.json
+node src/cli.ts listen --config local/scope.json \
+  --auth-module /ABSOLUTE/PATH/TO/EXISTING/auth.js \
+  --journal local/live.jsonl --duration 300
+```
+
+Logs contain stage names and selected message IDs, not raw frames or credentials.
+The journal contains selected-group text and is mode 0600. Exit 0 requires a push
+event; exit 2 means the bounded run ended without push proof. Exit 1 is a failure.
+No chat messages are sent by this CLI. Registration and shutdown do not mark read.
+The PoC registration expires at its bounded TTL after the connection closes.
+
+Send ordinary text, a native bot mention, and a reply. Edit an earlier message.
+Verify distinct message IDs, author/time, native mention MRI, reply target/preview,
+and a new update version. Do not infer success from `registered` alone.
+
+For a controlled gap, add `--drop-after 30 --reconnect-delay 10`, send text during
+the reported gap, and confirm one repair event with no duplicate on reconnect.
+Repeat across token refresh before claiming long-running token lifecycle coverage.
+
+An uncleanly killed journal leaves a `.lock`; check its recorded PID and inspect
+the capture before removing only the stale lock. A partial journal tail fails
+closed and must be reconciled, not truncated blindly. Do not reset production
+watermarks or the native ingress queue to resolve replay problems.
+
+## Channel deployment bridge
+
+The independent channel implementation lives in `plugin/`. The bridge retains
+the installed SDK wiring, approved local policy and existing MIT upstream auth /
+outbound client. This is not yet a standalone npm-distributed plugin package.
+
+```sh
+node scripts/deploy-bridge.mjs --target /ABSOLUTE/EXISTING/plugin/index.mjs --dry-run
+node scripts/deploy-bridge.mjs --target /ABSOLUTE/EXISTING/plugin/index.mjs \
+  --esbuild /ABSOLUTE/EXISTING/esbuild/bin/esbuild
+```
+
+The host's already installed esbuild bundles this repository into `realtime.mjs`
+beside the bridge; runtime never imports a mutable checkout by absolute path.
+No bundler package is installed by this script.
+
+Reload `teams-personal` through OpenClaw's `plugins` tool with
+`action: reloadAndResume`. Do not wait for a CLI reload while the active turn holds
+the plugin lease. No channel ID, destination, white list or global config changes.
+
+The old `watermark.json` is retained as a migration fence. The new endpoint and
+repair checkpoints live separately in `realtime-state.json`; native ingress owns
+durable turn deduplication. Group recent context is ephemeral (100 messages max;
+50 entries / 20,000 text characters per turn). Edits refresh that context without
+opening a new agent turn; they do not rewrite an already running turn.
+
+Acceptance after reload: verify runtime generation, authenticated registration,
+a real scoped incoming event, native ingress/model turn, one platform reply and
+reply readback. Test untagged context + mention, quoted reply, edit, and reconnect.
+Ordinary unmentioned messages and edits must not cause an extra reply. The DM
+sender guard and separate DM/group sessions must remain in force.
+
+Rollback: run the bridge script with the same target and `--restore`, then reload
+the plugin. Preserve both state files and the existing native queue. Do not
+uninstall the old upstream client or delete credentials during migration.

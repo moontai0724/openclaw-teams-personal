@@ -1,3 +1,4 @@
+import { PocError } from "./errors.ts";
 import { createHash } from 'node:crypto';
 import { object, type Json } from './protocol.ts';
 import type { Scope } from './scope.ts';
@@ -32,13 +33,13 @@ function idFromLink(value: unknown, type: 'contact' | 'conversation'): string | 
   try { return decodeURIComponent(match[1]); } catch { return; }
 }
 
-export function normalize(resource: unknown, resourceType: string, scope: Scope): Message | null {
+export function normalize(resource: unknown, resourceType: string, scope: Scope, includeSelf = false): Message | null {
   const raw = object(resource);
   const chatId = raw.conversationid ?? raw.conversationId ?? idFromLink(raw.conversationLink ?? raw.resourceLink, 'conversation');
   if (chatId !== scope.chatId) return null;
   const authorId = idFromLink(raw.fromId ?? raw.from, 'contact');
-  if (!authorId || authorId === scope.expectedAccount) return null;
-  if (typeof raw.id !== 'string' || !/^\d{1,24}$/.test(raw.id)) throw new Error('Message lacks stable ID');
+  if (!authorId || (!includeSelf && authorId === scope.expectedAccount)) return null;
+  if (typeof raw.id !== 'string' || !/^\d{1,24}$/.test(raw.id)) throw new PocError('Message lacks stable ID');
   const properties = raw.properties ? object(raw.properties) : {};
   const deleted = resourceType === 'MessageRemoved' || Boolean(properties.deletetime);
   if (!deleted && (!['Text', 'RichText/Html', 'RichText'].includes(String(raw.messagetype)) || typeof raw.content !== 'string')) return null;
@@ -61,7 +62,7 @@ export function normalize(resource: unknown, resourceType: string, scope: Scope)
     if (item && typeof item.mri === 'string') mentions.push({ id: item.mri, name: typeof item.displayName === 'string' ? item.displayName : '' });
   }
   const time = String(raw.originalarrivaltime ?? raw.composetime ?? new Date(Number(raw.id)).toISOString());
-  if (!Number.isFinite(Date.parse(time))) throw new Error('Message has invalid time');
+  if (!Number.isFinite(Date.parse(time))) throw new PocError('Message has invalid time');
   return {
     kind: deleted ? 'delete' : resourceType === 'MessageUpdate' ? 'update' : 'message',
     chatId, id: raw.id, version: String(raw.version ?? properties.edittime ?? raw.id),

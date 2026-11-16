@@ -1,0 +1,5 @@
+{
+  "chatId": "19:REPLACE_WITH_TEST_GROUP@thread.v2",
+  "expectedAccount": "8:live:.cid.example",
+  "registrar": "https://teams.microsoft.com/registrar/prod/v2/registrations"
+}

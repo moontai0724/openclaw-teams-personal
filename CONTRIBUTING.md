@@ -12,4 +12,5 @@ specific paths; local configuration and captures belong in gitignored `local/`.
 Network/account operations must never run during imports or tests. Live runs must
 select an exact group and expected account, have a finite duration, and write only
 filtered events to a private local file. Do not use the live connector's endpoint
-identity or watermark. Do not load this experiment in Gateway.
+identity or reset its watermark. Gateway deployment uses the explicit bridge and
+must follow the authorized replacement scope and rollback procedure.

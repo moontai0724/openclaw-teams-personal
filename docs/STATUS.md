@@ -1,11 +1,16 @@
 # Status
 
-Stage: protocol framing and message normalization pass offline tests. No live
-account operations have run. Transport and capture CLI are still in development.
+Stage: transport, capture CLI and channel adapter implemented; deployment pending.
 
-Accepted scope: a separate private repository and staged commits/pushes for a
-single-group, receive-only transport PoC. Group testing waits for the owner to
-provide a dedicated group; existing production routing is not changed.
+2026-11-16 15:25:46 Asia/Taipei: a bounded run with the existing bot account
+completed WebSocket authentication, registrar acceptance and scoped history repair.
+It ended after 45 seconds with zero push captures. This proves handshake and
+registration, not incoming message delivery. No model turn was invoked by the CLI.
+
+Accepted scope: independent private repository and staged commits/pushes. The owner
+subsequently expanded the task to actual replacement and Gateway connection,
+retaining the existing bot identity and approved group/DM scope. A deployment
+bridge preserves the old entry for rollback. New groups are not auto-enrolled.
 
 ## Completion evidence
 

@@ -1,9 +1,11 @@
-# Teams Personal receive-only PoC
+# Teams Personal realtime transport and OpenClaw channel
 
-Independent transport experiment for a future OpenClaw channel plugin.
-This repository is not loaded by Gateway and does not change the live connector.
+Independent Trouter transport, a receive-only validation CLI, and a channel adapter
+that replaces the installed polling receive loop through a small deployment bridge.
+The adapter retains the existing approved account, chat scope, auth store, native
+ingress and outbound client. See [live acceptance/deployment](docs/LIVE-TEST.md).
 
-## Stage-one boundary
+## Receive-only CLI boundary
 
 - One explicitly selected group, text messages only.
 - Trouter connection, authentication, notification registration and recovery.
@@ -24,5 +26,22 @@ npm test
 npm run check
 ```
 
-Live account validation is pending a dedicated test group. Synthetic fixtures and
-local tests never establish successful Teams registration or message delivery.
+For a credential-free demo:
+
+```sh
+node src/cli.ts replay --config test/fixtures/scope.json \
+  --input test/fixtures/events.jsonl --journal local/synthetic.jsonl
+```
+
+## Channel behavior
+
+- WebSocket events are primary; history reads happen at connection / gap recovery,
+  not every 20 seconds. No new public HTTP endpoint is opened.
+- Only authorized groups/DMs reach context or native ingress. Native mentions,
+  verified replies to the bot and commands retain the existing group trigger rule.
+- Untagged group text becomes bounded recent context. Quoted text is attached via
+  the SDK's supplemental quote facts. Edits update context without a new reply.
+- Existing native turn queue/deduplication and outbound destination checks remain.
+
+See [status](docs/STATUS.md) for observed verification; synthetic fixtures and local
+tests never establish successful Teams registration or actual message delivery.

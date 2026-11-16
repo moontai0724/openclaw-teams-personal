@@ -1,21 +1,22 @@
+import { PocError } from "./errors.ts";
 import { gunzipSync } from 'node:zlib';
 
 const MAX_BYTES = 1_048_576;
 export type Json = Record<string, unknown>;
 export function object(value: unknown): Json {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected JSON object');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new PocError('Expected JSON object');
   return value as Json;
 }
 export function json(text: string): Json {
-  if (Buffer.byteLength(text) > MAX_BYTES) throw new Error('Payload exceeds limit');
+  if (Buffer.byteLength(text) > MAX_BYTES) throw new PocError('Payload exceeds limit');
   return object(JSON.parse(text));
 }
 
 export type Frame = { type: string; id: string; wantsAck: boolean; data: string };
 export function parseFrame(value: string): Frame {
-  if (Buffer.byteLength(value) > MAX_BYTES) throw new Error('Frame exceeds limit');
+  if (Buffer.byteLength(value) > MAX_BYTES) throw new PocError('Frame exceeds limit');
   const match = /^([0-8]):(\d*)(\+)?:([^:]*)(?::([\s\S]*))?$/.exec(value);
-  if (!match || match[4] !== '') throw new Error('Invalid Socket.IO 0.9 frame');
+  if (!match || match[4] !== '') throw new PocError('Invalid Socket.IO 0.9 frame');
   return { type: match[1], id: match[2], wantsAck: Boolean(match[3]), data: match[5] ?? '' };
 }
 export const eventFrame = (name: string, args: unknown[] = []) => `5:::${JSON.stringify({ name, args })}`;
@@ -24,7 +25,7 @@ export const requestAck = (id: number) => `3:::${JSON.stringify({ id, status: 20
 export function decodeBody(headers: Json, body: string): Json {
   const encoding = Object.entries(headers).find(([key]) => key.toLowerCase() === 'x-microsoft-skype-content-encoding')?.[1];
   const inflate = (value: string) => {
-    if (Buffer.byteLength(value) > MAX_BYTES) throw new Error('Compressed payload exceeds limit');
+    if (Buffer.byteLength(value) > MAX_BYTES) throw new PocError('Compressed payload exceeds limit');
     return gunzipSync(Buffer.from(value, 'base64'), { maxOutputLength: MAX_BYTES }).toString('utf8');
   };
   let decoded = json(encoding === 'gzip' ? inflate(body) : body);
@@ -35,7 +36,7 @@ export function decodeBody(headers: Json, body: string): Json {
 
 export function trustedUrl(value: string, kind: 'socket' | 'registrar' | 'history'): URL {
   const url = new URL(value);
-  if (url.username || url.password || (url.port && url.port !== '443')) throw new Error('Untrusted endpoint');
+  if (url.username || url.password || (url.port && url.port !== '443')) throw new PocError('Untrusted endpoint');
   const host = url.hostname.toLowerCase();
   const trouter = host === 'go.trouter.teams.microsoft.com' || host.endsWith('.trouter.teams.microsoft.com') || host.endsWith('.trouter.skype.com');
   const allowed = kind === 'socket'
@@ -43,7 +44,7 @@ export function trustedUrl(value: string, kind: 'socket' | 'registrar' | 'histor
     : kind === 'registrar'
       ? url.protocol === 'https:' && ['teams.microsoft.com', 'edge.skype.com'].includes(host) && /^\/registrar\/prod\/v[23]\/registrations$/i.test(url.pathname)
       : url.protocol === 'https:' && ['teams.live.com', 'msgapi.teams.live.com'].includes(host) && /\/(?:api\/chatsvc\/consumer\/)?v1\/users\/ME\/conversations\//.test(url.pathname);
-  if (!allowed) throw new Error('Untrusted endpoint');
+  if (!allowed) throw new PocError('Untrusted endpoint');
   return url;
 }
 
@@ -58,14 +59,14 @@ export function socketUrl(endpointId: string, host = 'go.trouter.teams.microsoft
 
 export function connectedRoute(value: unknown): { path: string; ttl: number } {
   const data = object(value);
-  if (typeof data.surl !== 'string') throw new Error('Connected event lacks routing URL');
+  if (typeof data.surl !== 'string') throw new PocError('Connected event lacks routing URL');
   const url = new URL(data.surl);
-  trustedUrl(`wss://${url.host}/v4/c`, 'socket');
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !url.pathname.startsWith('/v4/f/')) {
-    throw new Error('Invalid connected routing URL');
+  trustedUrl(`wss://${url.hostname}/v4/c`, 'socket');
+  if (url.protocol !== 'https:' || (url.port && !['443', '3443'].includes(url.port)) || url.username || url.password || url.search || url.hash || !url.pathname.startsWith('/v4/f/')) {
+    throw new PocError('Invalid connected routing URL');
   }
   const ttl = Number(data.ttl);
-  if (!Number.isFinite(ttl) || ttl < 60 || ttl > 604800) throw new Error('Invalid connection TTL');
+  if (!Number.isFinite(ttl) || ttl < 60 || ttl > 604800) throw new PocError('Invalid connection TTL');
   return { path: url.href, ttl };
 }
 
