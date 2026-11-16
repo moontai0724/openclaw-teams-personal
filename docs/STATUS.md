@@ -3,7 +3,9 @@
 Stage: new-group text/context/native-quote acceptance and isolated reconnect
 confirmed; registrar shutdown fix deployed, production repair/replay check passed.
 Emoji reactions are accepted by the owner (Telegram topic 189, message 254).
-Owner native-tag enrollment is implemented and tested; deployment is being prepared.
+Owner native-tag enrollment commit `e1e3337` is committed/pushed and its bundle,
+bridge and additive manifest schema are deployed. Runtime reload and scoped
+config activation remain pending.
 
 The new adapter reuses the host shared core, adds exact dynamic room policy and
 first-tag activation recovery, and does not grant global ownership. Forty tests
@@ -19,8 +21,13 @@ relationshipState.inQuarantine was true despite earlier API replies. A direct
 member-property write returned 200 but did not resolve the quarantine. Following
 the shipped web client's one-to-one acceptance path, the owner was added to the
 single TflContacts entry; readback then returned inQuarantine=false. This changed
-no organization-wide policy and no read horizon. The requested single test DM was
-sent with a platform receipt; requester-side send acceptance still needs testing.
+no organization-wide policy. The requested single test DM was sent with a
+platform receipt, but the owner reported that sending still failed. At the
+owner's request the DM was then marked read; the exact read horizon was verified.
+A legacy conversation-status write was rejected with HTTP 400 and made no change;
+those empty fields are not proof of a fault in this modern thread. The owner
+explicitly confirmed the Teams identity and deferred this still-unresolved
+client-side sending issue. Do not describe the DM repair as end-to-end success.
 
 2026-11-16 18:13:19 Asia/Taipei: runtime generation 6 loaded commit `d4bfd05`
 without a Gateway restart. The selected deployment bridge is unchanged; the
@@ -190,3 +197,11 @@ the reported connection gap.
 A run without a real message during its gap cannot prove recovery of missed
 traffic. Do not expand chat scope, send test messages on the owner's behalf, or
 reset replay state.
+
+
+Deployment handoff: the setup tool declined the initial scoped config update
+because its loaded channel schema predates these new fields; no config was
+written. Reload the deployed plugin first, then enable only channel-local owner
+enrollment and migrate the existing two exact rooms. Do not modify global owners,
+login, transport endpoint or replay state. User confirmation of identity was
+received before enabling this role.
