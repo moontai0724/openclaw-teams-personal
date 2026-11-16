@@ -8,7 +8,7 @@ export function createTeamsChannel({ sdk, getSkypeToken, hasSavedLogin, createTe
 const { defineChannelPluginEntry, dispatchInboundDirectDm, dispatchChannelInboundTurn,
   createChannelIngressMonitor, bindIngressLifecycleToReplyOptions,
   createChannelMessageAdapterFromOutbound } = sdk;
-const { CHANNEL, CHAT, SENDER, BOT, GROUP, normalizedTarget, groupAdmitted, validConfig, admitted, targetAllowed } = policy;
+const { CHANNEL, CHAT, SENDER, BOT, GROUP, GROUPS = [GROUP], groupLabel = id => id, normalizedTarget, groupAdmitted, validConfig, admitted, targetAllowed } = policy;
 let runtime;
 const client = createTeamsClient(getSkypeToken);
 const resolveAccount = (cfg) => ({accountId:'default', ...cfg.channels?.[CHANNEL]});
@@ -63,14 +63,15 @@ const plugin = {
       deliver:async(m,lifecycle)=>{
         assertAuthority();
         const cfg=runtime.config.current();
-        if (m.conversationId === GROUP) {
+        if (GROUPS.includes(m.conversationId)) {
+          const group = m.conversationId;
           if (!groupAdmitted(m,state.group.since)) throw new Error('Group event no longer admitted');
-          const route=channelRuntime.routing.resolveAgentRoute({cfg,channel:CHANNEL,accountId:'default',peer:{kind:'group',id:GROUP}});
-          const ingress=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:m.fromId},conversation:{kind:'group',id:GROUP},contextBinding:{agentId:route.agentId,sessionKey:route.sessionKey,messageId:m.id,inboundEventKind:'user_request'},dmPolicy:'allowlist',groupPolicy:'allowlist',allowFrom:[SENDER],groupAllowFrom:['*'],route:{id:GROUP,kind:'group',configured:true,matched:true,allowed:true},useDefaultPairingStore:false,command:false});
+          const route=channelRuntime.routing.resolveAgentRoute({cfg,channel:CHANNEL,accountId:'default',peer:{kind:'group',id:group}});
+          const ingress=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:m.fromId},conversation:{kind:'group',id:group},contextBinding:{agentId:route.agentId,sessionKey:route.sessionKey,messageId:m.id,inboundEventKind:'user_request'},dmPolicy:'allowlist',groupPolicy:'allowlist',allowFrom:[SENDER],groupAllowFrom:['*'],route:{id:group,kind:'group',configured:true,matched:true,allowed:true},useDefaultPairingStore:false,command:false});
           if (!ingress.senderAccess.allowed) throw new Error('Group ingress denied');
           const explicit=Boolean(m.mentions?.some(x=>x.mri===BOT));
-          const ctxPayload=await channelRuntime.inbound.buildContext({channel:CHANNEL,accountId:'default',provider:CHANNEL,surface:CHANNEL,messageId:m.id,messageIdFull:m.id,timestamp:Date.parse(m.time),from:GROUP,sender:{id:m.fromId,name:m.from},conversation:{kind:'group',id:GROUP,label:'Jo是要吃飯 2.0',routePeer:{kind:'group',id:GROUP}},route:{agentId:route.agentId,accountId:'default',routeSessionKey:route.sessionKey,dispatchSessionKey:route.sessionKey},reply:{to:GROUP,originatingTo:GROUP},message:{rawBody:m.text,bodyForAgent:m.text,commandBody:m.text,inboundHistory:m.history,inboundEventKind:'user_request'},access:{commands:{authorized:false},mentions:{canDetectMention:true,wasMentioned:explicit,explicitlyMentionedBot:explicit,effectiveWasMentioned:explicit||m.replyToBot===true,requireMention:true}},channelIngress:ingress,supplemental:m.quote?{quote:m.quote}:undefined,extra:{OriginatingChannel:CHANNEL}});
-          await dispatchChannelInboundTurn({cfg,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority,...bindIngressLifecycleToReplyOptions(lifecycle),delivery:{deliver:async(payload)=>{assertAuthority();if(payload.mediaUrl||payload.mediaUrls?.length) throw new Error('Text only');if(payload.text) await send(runtime.config.current(),GROUP,payload.text);},onError:e=>ctx.log?.error(`Teams group dispatch: ${String(e)}`)}});
+          const ctxPayload=await channelRuntime.inbound.buildContext({channel:CHANNEL,accountId:'default',provider:CHANNEL,surface:CHANNEL,messageId:m.id,messageIdFull:m.id,timestamp:Date.parse(m.time),from:group,sender:{id:m.fromId,name:m.from},conversation:{kind:'group',id:group,label:groupLabel(group),routePeer:{kind:'group',id:group}},route:{agentId:route.agentId,accountId:'default',routeSessionKey:route.sessionKey,dispatchSessionKey:route.sessionKey},reply:{to:group,originatingTo:group},message:{rawBody:m.text,bodyForAgent:m.text,commandBody:m.text,inboundHistory:m.history,inboundEventKind:'user_request'},access:{commands:{authorized:false},mentions:{canDetectMention:true,wasMentioned:explicit,explicitlyMentionedBot:explicit,effectiveWasMentioned:explicit||m.replyToBot===true,requireMention:true}},channelIngress:ingress,supplemental:m.quote?{quote:m.quote}:undefined,extra:{OriginatingChannel:CHANNEL}});
+          await dispatchChannelInboundTurn({cfg,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority,...bindIngressLifecycleToReplyOptions(lifecycle),delivery:{deliver:async(payload)=>{assertAuthority();if(payload.mediaUrl||payload.mediaUrls?.length) throw new Error('Text only');if(payload.text) await send(runtime.config.current(),group,payload.text);},onError:e=>ctx.log?.error(`Teams group dispatch: ${String(e)}`)}});
           return;
         }
         // Force channel/peer isolation without changing the global session preference.

@@ -51,8 +51,9 @@ export function legacyMessage(raw, type, chat, bot) {
 
 export async function runReceiver({ authProvider, policy, stateDir, admit, assertAuthority, status, log, signal,
   fetcher = fetch, makeSocket = url => new WebSocket(url) }) {
-  const { CHAT, GROUP, BOT, SENDER, admitted, groupAdmitted } = policy;
-  const chats = [CHAT, GROUP];
+  const { CHAT, GROUP, GROUPS = [GROUP], BOT, SENDER, admitted, groupAdmitted } = policy;
+  const chats = [CHAT, ...GROUPS];
+  if (!GROUPS.includes(GROUP) || new Set(chats).size !== chats.length) throw new PocError('Invalid realtime chat scope');
   const context = new ContextWindow();
   const statePath = path.join(stateDir, 'realtime-state.json');
   let state;
@@ -65,7 +66,15 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
       chats: { [CHAT]: { baseline: previous.lastId, since: previous.since, repairedThrough: Number(previous.lastId) || previous.since },
         [GROUP]: { baseline: previous.group.lastId, since: previous.group.since, repairedThrough: Number(previous.group.lastId) || previous.group.since } } };
   }
-  if (state.version !== 1 || state.bot !== BOT || !/^[\da-f-]{36}$/.test(state.endpointId) || Object.keys(state.chats).sort().join() !== [...chats].sort().join()) throw new PocError('Realtime migration scope mismatch');
+  if (state.version !== 1 || state.bot !== BOT || !/^[\da-f-]{36}$/.test(state.endpointId) || !state.chats?.[CHAT] || !state.chats?.[GROUP] || Object.keys(state.chats).some(chat => !chats.includes(chat))) throw new PocError('Realtime migration scope mismatch');
+  // New explicitly approved groups start at activation, without replaying old turns.
+  // Existing cursors and the transport endpoint are never reset when adding a group.
+  for (const group of GROUPS) {
+    if (!state.chats[group]) {
+      const since = Date.now();
+      state.chats[group] = { baseline: String(since), since, repairedThrough: since };
+    }
+  }
   for (const chat of chats) {
     const item = state.chats[chat];
     if (!/^\d+$/.test(item.baseline) || !Number.isFinite(item.since) || !Number.isFinite(item.repairedThrough)) throw new PocError('Invalid realtime migration state');
@@ -83,7 +92,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
     if (source === 'push') {
       const kind = message.deleted ? 'delete' : message.edited ? 'update' : 'message';
       status({ lastEventAt: Date.now(), lastEventId: message.id, lastEventKind: kind });
-      log('scoped_event', { id: message.id, kind, self: message.isMine });
+      log('scoped_event', { chat: message.conversationId, id: message.id, kind, self: message.isMine });
     }
     const item = state.chats[message.conversationId];
     if (message.deleted || message.edited || BigInt(message.id) <= BigInt(item.baseline)) return;
@@ -91,7 +100,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
     message.replyToBot = Boolean(original?.fromId === BOT && original.isMine);
     const allowed = message.conversationId === CHAT ? admitted(message, item.since) : groupAdmitted(message, item.since);
     if (!allowed) return;
-    const history = message.conversationId === GROUP ? context.history(GROUP, message) : undefined;
+    const history = GROUPS.includes(message.conversationId) ? context.history(message.conversationId, message) : undefined;
     const quote = message.replyTo ? {
       id: message.replyTo.messageId, body: original?.text ?? message.replyTo.preview,
       sender: original?.from ?? message.replyTo.fromId, senderAllowed: true, isQuote: true,

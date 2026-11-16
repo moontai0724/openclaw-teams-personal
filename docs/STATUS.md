@@ -1,6 +1,14 @@
 # Status
 
-Stage: channel replacement deployed and connected; real-message acceptance pending.
+Stage: original replacement connected; additional test-group deployment prepared.
+
+2026-11-16: the owner authorized adding the newly joined test group in Telegram
+topic 189, message 221. This is one explicit allowlist addition, not automatic
+group enrollment. The channel now supports per-group routing, history and outbound
+guards; state migration adds only the new activation fence while preserving the
+existing DM/group cursors and endpoint. Deployment/reload confirmation is pending.
+All 26 offline tests and syntax checks pass, including two-group ingress/reply
+isolation, legacy/existing-state migration, and rejection of pre-activation turns.
 
 2026-11-16 15:41:48 Asia/Taipei: OpenClaw applied the `teams-personal`
 replacement without a Gateway restart (runtime generation 3). The deployed source
@@ -10,10 +18,10 @@ completed scoped history repair, including server-reported message-loss recovery
 The subsequent Gateway channel snapshot reports `running: true`,
 `connected: true`, `lifecycle: ready`, and `lastError: null`.
 
-No new scoped push event has been observed since replacement. Earlier inbound
-timestamps in channel status belong to the former connector and are not proof
-of new delivery. Real group message, mention/reply, edit and controlled-reconnect
-acceptance remain open; do not claim model/reply end-to-end acceptance yet.
+No scoped group push had been observed at the initial deployment check. This
+historical snapshot does not establish the current live acceptance result.
+Real group message, mention/reply, edit and controlled-reconnect acceptance remain
+open; do not claim group model/reply end-to-end acceptance yet.
 
 2026-11-16 15:25:46 Asia/Taipei: a bounded run with the existing bot account
 completed WebSocket authentication, registrar acceptance and scoped history repair.
@@ -22,8 +30,9 @@ registration, not incoming message delivery. No model turn was invoked by the CL
 
 Accepted scope: independent private repository and staged commits/pushes. The owner
 subsequently expanded the task to actual replacement and Gateway connection,
-retaining the existing bot identity and approved group/DM scope. A deployment
-bridge preserves the old entry for rollback. New groups are not auto-enrolled.
+retaining the existing bot identity and approved group/DM scope. The subsequent
+message 221 explicitly adds one new test group while retaining prior access. A
+deployment bridge preserves the old entry for rollback. Groups are not auto-enrolled.
 
 ## Completion evidence
 
@@ -40,7 +49,7 @@ bridge preserves the old entry for rollback. New groups are not auto-enrolled.
    delivery.
 
 Items 3-5 require real Teams observations and are not proved by mocks. Next,
-the owner sends/edits test text in the already approved Teams group, then mentions
+the owner sends/edits test text in either explicitly approved Teams group, then mentions
 the bot. After the owner reports that test here, inspect scoped runtime event IDs,
 native ingress/session outcomes and platform reply readback. Do not expand chat
 scope, send test messages on the owner's behalf, or reset replay state.

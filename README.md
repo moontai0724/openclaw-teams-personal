@@ -2,8 +2,9 @@
 
 Independent Trouter transport, a receive-only validation CLI, and a channel adapter
 that replaces the installed polling receive loop through a small deployment bridge.
-The adapter retains the existing approved account, chat scope, auth store, native
-ingress and outbound client. See [live acceptance/deployment](docs/LIVE-TEST.md).
+The adapter retains the existing approved account, auth store, native ingress and
+outbound client. Chat scope is an explicit host allowlist; adding a group requires
+owner authorization. See [live acceptance/deployment](docs/LIVE-TEST.md).
 
 ## Receive-only CLI boundary
 
@@ -42,6 +43,10 @@ node src/cli.ts replay --config test/fixtures/scope.json \
 - Untagged group text becomes bounded recent context. Quoted text is attached via
   the SDK's supplemental quote facts. Edits update context without a new reply.
 - Existing native turn queue/deduplication and outbound destination checks remain.
+- Multiple explicitly approved groups have separate context, sessions and reply
+  destinations. Adding a group preserves existing replay cursors and starts its
+  dispatch fence at activation; older text may supply context, not replayed turns.
+- Joining a group or mentioning the bot does not automatically enroll that group.
 
 See [status](docs/STATUS.md) for observed verification; synthetic fixtures and local
 tests never establish successful Teams registration or actual message delivery.

@@ -1,6 +1,6 @@
 # Live acceptance and recovery
 
-Only the existing bot identity and explicitly approved DM/group are authorized.
+Only the existing bot identity and explicitly approved DM/groups are authorized.
 Account-wide notifications may arrive at Trouter, but other chats must be dropped
 before caching, persistence or model dispatch. Real captures stay out of Git.
 
@@ -54,13 +54,24 @@ No bundler package is installed by this script.
 
 Reload `teams-personal` through OpenClaw's `plugins` tool with
 `action: reloadAndResume`. Do not wait for a CLI reload while the active turn holds
-the plugin lease. No channel ID, destination, white list or global config changes.
+the plugin lease. The deployment script does not change channel ID, host allowlist
+or global config. Any host allowlist change requires separate owner authorization.
+
+The host policy supplies `GROUP` (the original group's legacy cursor identity),
+`GROUPS` (the exact approved group IDs) and optional `groupLabel(id)`. Without
+`GROUPS`, the original single-group scope remains. Keep `groupAdmitted` and
+`targetAllowed` restricted to that same list; do not use a wildcard. Each group
+uses its own route, session, context window and outbound destination.
 
 The old `watermark.json` is retained as a migration fence. The new endpoint and
 repair checkpoints live separately in `realtime-state.json`; native ingress owns
 durable turn deduplication. Group recent context is ephemeral (100 messages max;
 50 entries / 20,000 text characters per turn). Edits refresh that context without
 opening a new agent turn; they do not rewrite an already running turn.
+Explicitly adding a group initializes only its activation fence and checkpoint.
+Existing DM/group cursors and the endpoint identity are preserved. Pre-activation
+history supplies context but cannot open a turn. Unexpected persisted chat scope
+fails closed; do not delete state or reset old cursors to bypass that check.
 
 Acceptance after reload: verify runtime generation, authenticated registration,
 a real scoped incoming event, native ingress/model turn, one platform reply and
