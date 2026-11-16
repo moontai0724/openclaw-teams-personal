@@ -14,3 +14,9 @@ select an exact group and expected account, have a finite duration, and write on
 filtered events to a private local file. Do not use the live connector's endpoint
 identity or reset its watermark. Gateway deployment uses the explicit bridge and
 must follow the authorized replacement scope and rollback procedure.
+
+The deployment bridge injects the host's existing shared `enrollOwnerGroup` core.
+Set `TEAMS_ENROLLMENT_CORE` to that module's absolute path when running `npm test`
+to include the two host-core adapter/receiver integration cases. Without it those
+two cases are explicitly skipped; no substitute enrollment core is bundled.
+The module is read as code, not a credential source. Never point it at an untrusted file.

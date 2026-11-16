@@ -3,8 +3,10 @@
 Independent Trouter transport, a receive-only validation CLI, and a channel adapter
 that replaces the installed polling receive loop through a small deployment bridge.
 The adapter retains the existing approved account, auth store, native ingress and
-outbound client. Chat scope is an explicit host allowlist; adding a group requires
-owner authorization. See [live acceptance/deployment](docs/LIVE-TEST.md).
+outbound client. Chat scope is an exact per-room allowlist. A verified enrollment
+owner can authorize a new room by an original native bot mention; the feature is off until
+the host config explicitly binds that identity.
+See [live acceptance/deployment](docs/LIVE-TEST.md).
 
 ## Receive-only CLI boundary
 
@@ -46,7 +48,11 @@ node src/cli.ts replay --config test/fixtures/scope.json \
 - Multiple explicitly approved groups have separate context, sessions and reply
   destinations. Adding a group preserves existing replay cursors and starts its
   dispatch fence at activation; older text may supply context, not replayed turns.
-- Joining a group or mentioning the bot does not automatically enroll that group.
+- Joining alone never enrolls a group. With the verified enrollment identity
+  configured, only that owner's fresh original native bot tag enrolls a new group.
+  Replies, commands, forwards, edits, old history and other senders do not enroll.
+  Each new room allows all members, retains mention/reply gating and grants no
+  global owner or administrative permissions. Disabled rooms remain disabled.
 - The shared `message` tool supports `react` and `emoji-list`. Reactions reuse the
   installed outbound client's emoji catalogue; `remove: true` removes only the
   bot's selected emoji. Every mutation is read back as the bot's own reaction.

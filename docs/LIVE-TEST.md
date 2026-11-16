@@ -1,8 +1,10 @@
 # Live acceptance and recovery
 
-Only the existing bot identity and explicitly approved DM/groups are authorized.
-Account-wide notifications may arrive at Trouter, but other chats must be dropped
-before caching, persistence or model dispatch. Real captures stay out of Git.
+The bot identity and approved DM remain unchanged. Groups are an exact allowlist;
+a verified enrollment owner may authorize one additional group with an original
+native tag. Account-wide push facts are checked before rejecting an unknown
+group, but nonqualifying chats are dropped before caching or model dispatch.
+No discovery history is fetched for unapproved rooms. Real captures stay out of Git.
 
 ## Receive-only CLI
 
@@ -54,13 +56,17 @@ No bundler package is installed by this script.
 
 Reload `teams-personal` through OpenClaw's `plugins` tool with
 `action: reloadAndResume`. Do not wait for a CLI reload while the active turn holds
-the plugin lease. The deployment script does not change channel ID, host allowlist
-or global config. Any host allowlist change requires separate owner authorization.
+the plugin lease. The deployment script updates the bridge, bundle and additive
+channel-config schema; it does not write the host config or enable enrollment. Exact room
+entries and the verified enrollment identity require owner authorization.
 
 The host policy supplies `GROUP` (the original group's legacy cursor identity),
 `GROUPS` (the exact approved group IDs) and optional `groupLabel(id)`. Without
-`GROUPS`, the original single-group scope remains. Keep `groupAdmitted` and
-`targetAllowed` restricted to that same list; do not use a wildcard. Each group
+`GROUPS`, the original single-group scope remains. Absent a configured `groups`
+map, these IDs remain the compatibility default.
+Once present, `channels.teams-personal.groups` is authoritative, including disabled
+entries. The runtime wraps `groupAdmitted` and `targetAllowed` around that exact
+map; no wildcard destinations are admitted. Each group
 uses its own route, session, context window and outbound destination.
 
 The old `watermark.json` is retained as a migration fence. The new endpoint and
@@ -70,8 +76,9 @@ durable turn deduplication. Group recent context is ephemeral (100 messages max;
 opening a new agent turn; they do not rewrite an already running turn.
 Explicitly adding a group initializes only its activation fence and checkpoint.
 Existing DM/group cursors and the endpoint identity are preserved. Pre-activation
-history supplies context but cannot open a turn. Unexpected persisted chat scope
-fails closed; do not delete state or reset old cursors to bypass that check.
+history supplies context but cannot open a turn. Persisted checkpoints for
+disabled/revoked groups are retained but never read as authorization. Malformed state scope still fails closed; do not delete state
+or reset old cursors to bypass that check.
 
 Acceptance after reload: verify runtime generation, authenticated registration,
 a real scoped incoming event, native ingress/model turn, one platform reply and
@@ -115,3 +122,31 @@ replace a real message sent during the gap or the native production queue check.
 Rollback: run the bridge script with the same target and `--restore`, then reload
 the plugin. Preserve both state files and the existing native queue. Do not
 uninstall the old upstream client or delete credentials during migration.
+
+## Owner native-tag enrollment
+
+The host provides the existing shared enrollment core through the deployment
+bridge. Teams projects `enrollmentOwnerId` into that core's owner decision only;
+it never writes global `commands.ownerAllowFrom` or grants management authority.
+The configured ID must equal the host's explicitly verified approved sender; a
+DM allowlist entry alone is not proof of ownership. Missing identity fails closed.
+
+A qualifying event is a fresh `NewMessage` push in a group, authored by that exact
+identity, containing the bot's native MRI mention metadata. Names/plain text,
+join events, replies, commands, forwards, edits, deletion events and history repair
+do not enroll. Existing/disabled rooms and a disabled channel/group policy are
+not overwritten. Normal unmentioned events do no extra persistence or API calls.
+
+The native config mutation persists exactly one room with `allowFrom: ['*']`,
+`requireMention: true`, and its triggering `activationId`/`activatedAt`. Existing
+rooms, DM policy, endpoint, watermarks and global owners remain unchanged. The
+trigger fence is published with admission so a config-triggered restart can
+recover the first tag, while native ingress owns durable deduplication. Text and
+reaction sends, queued delivery and history acceptance recheck live room policy.
+
+For live acceptance, invite the bot to a genuinely unlisted group, send ordinary
+owner text (it must not enroll), then send an original native bot tag. Verify one
+new exact config entry, one ingress/model/reply and no older replayed requests.
+Have another member tag the bot to verify ordinary member access. Do not inject
+synthetic production events or remove an existing room merely to manufacture a
+test. A user-accepted emoji test does not establish this enrollment behavior.

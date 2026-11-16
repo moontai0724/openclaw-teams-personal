@@ -2,8 +2,25 @@
 
 Stage: new-group text/context/native-quote acceptance and isolated reconnect
 confirmed; registrar shutdown fix deployed, production repair/replay check passed.
-Emoji-reaction actions deployed in generation 6, with live client add/remove proof;
-shared-tool acceptance awaits a request in the current Teams conversation.
+Emoji reactions are accepted by the owner (Telegram topic 189, message 254).
+Owner native-tag enrollment is implemented and tested; deployment is being prepared.
+
+The new adapter reuses the host shared core, adds exact dynamic room policy and
+first-tag activation recovery, and does not grant global ownership. Forty tests
+pass with the host core supplied, plus syntax checks. The separate existing
+shared enrollment/LINE-history suite passes all 19 cases. Enrollment has not yet
+been exercised by a real owner tag in an unlisted Teams group.
+
+The owner supplied a screenshot during this task; its existing request/reply pair
+matched the approved DM's platform readback, establishing the Teams identity for
+this scoped enrollment role. Private message content and account IDs stay out of
+this repository. The screenshot also led to a one-time DM repair: bot-side
+relationshipState.inQuarantine was true despite earlier API replies. A direct
+member-property write returned 200 but did not resolve the quarantine. Following
+the shipped web client's one-to-one acceptance path, the owner was added to the
+single TflContacts entry; readback then returned inQuarantine=false. This changed
+no organization-wide policy and no read horizon. The requested single test DM was
+sent with a platform receipt; requester-side send acceptance still needs testing.
 
 2026-11-16 18:13:19 Asia/Taipei: runtime generation 6 loaded commit `d4bfd05`
 without a Gateway restart. The selected deployment bridge is unchanged; the
@@ -20,8 +37,8 @@ snapshot. The selected test message has no bot thumbs-up remaining from the
 earlier add/remove test. The host rejected the shared `message react` call from
 Telegram before adapter handoff because delegated actions require the exact
 current Teams conversation/account. No reaction was sent by that call. Do not
-bypass this boundary: the remaining shared-tool check needs an addressed Teams
-request to react to an existing message, followed by readback and a removal check.
+bypass this boundary. At that checkpoint the shared-tool check was still pending;
+the owner subsequently accepted reaction behavior in message 254.
 
 2026-11-16 18:04:45-18:04:50 Asia/Taipei: a fresh native reply without any mention
 arrived over the production Trouter connection and opened exactly one new group
@@ -43,7 +60,7 @@ with `changed: false`, and removal with readback. The original three-request/
 three-reply session remained unchanged. These checks establish the real upstream
 API and action handler, not yet deployed shared-tool execution. Private proof
 stays in gitignored local files. Generation 6 deployment is confirmed above;
-shared-tool acceptance in a current Teams conversation remains pending.
+the owner subsequently confirmed reaction behavior in message 254.
 
 2026-11-16 17:54:54 Asia/Taipei: runtime generation 5 loaded commit `ba379d4`
 without a Gateway restart, using the same deployment bridge. Reload receipt:
@@ -137,11 +154,12 @@ Accepted scope: independent private repository and staged commits/pushes. The ow
 subsequently expanded the task to actual replacement and Gateway connection,
 retaining the existing bot identity and approved group/DM scope. The subsequent
 message 221 explicitly adds one new test group while retaining prior access. A
-deployment bridge preserves the old entry for rollback. Groups are not auto-enrolled.
+deployment bridge preserves the old entry for rollback. Owner-tag enrollment
+was subsequently authorized in message 254; its current status is recorded above.
 
 ## Completion evidence
 
-1. Confirmed: 35 offline protocol/validation/recovery/channel/action tests and syntax
+1. Confirmed: 40 offline protocol/validation/recovery/channel/action tests and syntax
    checks pass.
 2. Confirmed: a bounded live run and the replacement Gateway runtime both reach
    authenticated and registered state.
@@ -161,14 +179,12 @@ deployment bridge preserves the old entry for rollback. Groups are not auto-enro
    a separate live acceptance item.
 7. Confirmed in a direct handler run: real emoji reaction addition, idempotent
    repeated request and selected-emoji removal, each checked by readback.
-   Generation 6 is loaded and connected. Pending: shared-message-tool verification
-   from an actual request in the current Teams conversation/account.
+   Generation 6 is loaded and connected. The owner accepted reaction behavior
+   in Telegram message 254; no separate additional tool-log audit was performed.
 
 Live acceptance requires real Teams observations and is not proved by mocks.
-For the next live check, ask the bot in the approved Teams test group to add a
-thumbs-up to that message, then remove it. Verify the deployed shared tool's
-readback receipts, idempotence and absence of extra text replies, retaining replay
-state. Telegram-to-Teams delegation is rejected by the host's exact-current gate.
+Next live acceptance is owner-tag enrollment in a genuinely unlisted group,
+followed by another member's tag. See the exact procedure in LIVE-TEST.md.
 A controlled missed-message test still needs a coordinated real message during
 the reported connection gap.
 A run without a real message during its gap cannot prove recovery of missed

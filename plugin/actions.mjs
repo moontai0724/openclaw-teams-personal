@@ -29,6 +29,7 @@ export function createTeamsActions({ policy, currentConfig, getSkypeToken,
         throw new Error('Teams Personal destination not approved or conflicting');
       }
       const chatId = normalizedTarget(to);
+      const assertDestination = () => { assertAuthority(); if (!targetAllowed(chatId)) throw new Error('Teams Personal destination no longer approved'); };
       const explicitId = params.messageId ?? params.message_id;
       // Never borrow the current message ID for another conversation or provider.
       const id = explicitId ?? (current && normalizedTarget(current) === chatId ? toolContext.currentMessageId : undefined);
@@ -43,22 +44,22 @@ export function createTeamsActions({ policy, currentConfig, getSkypeToken,
       const result = { channel: CHANNEL, chatId, messageId, key, remove };
       if (ctx.dryRun) return jsonResult({ ok: true, dryRun: true, ...result });
       const client = createTeamsClient(async () => {
-        assertAuthority();
+        assertDestination();
         const credential = await getSkypeToken();
-        assertAuthority();
+        assertDestination();
         checkCredential(credential, BOT);
         return credential;
       });
       const read = async () => {
-        assertAuthority();
+        assertDestination();
         const message = await client.getMessage(chatId, messageId);
-        assertAuthority();
+        assertDestination();
         if (String(message.id) !== messageId || message.conversationId !== chatId) throw new Error('Teams reaction readback target mismatch');
         return message.reactions?.some(reaction => reaction.key === key && reaction.mine === true) === true;
       };
       const wanted = !remove;
       if (await read() === wanted) return jsonResult({ ok: true, ...result, changed: false, verified: true });
-      assertAuthority();
+      assertDestination();
       let writeFailed = false;
       try { await client.react(chatId, messageId, key, { remove }); }
       catch { writeFailed = true; } // A lost response may still have changed the platform.

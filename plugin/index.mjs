@@ -2,16 +2,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { runReceiver } from './receiver.mjs';
 import { createTeamsActions } from './actions.mjs';
+import { createScopedPolicy, createOwnerEnrollment } from './enrollment.mjs';
 
 // The deployment bridge supplies the host's SDK and existing approved auth/client.
 // This keeps the repository independent of machine paths and credential storage.
-export function createTeamsChannel({ sdk, getSkypeToken, hasSavedLogin, createTeamsClient, policy,
+export function createTeamsChannel({ sdk, getSkypeToken, hasSavedLogin, createTeamsClient, policy: basePolicy, sharedEnroll,
   reactionEmojis, normalizeReactionKey, receiver = runReceiver }) {
 const { defineChannelPluginEntry, dispatchInboundDirectDm, dispatchChannelInboundTurn,
   createChannelIngressMonitor, bindIngressLifecycleToReplyOptions,
   createChannelMessageAdapterFromOutbound } = sdk;
-const { CHANNEL, CHAT, SENDER, BOT, GROUP, GROUPS = [GROUP], groupLabel = id => id, normalizedTarget, groupAdmitted, validConfig, admitted, targetAllowed } = policy;
 let runtime;
+const policy = createScopedPolicy(basePolicy, () => runtime.config.current());
+const { CHANNEL, CHAT, SENDER, BOT, GROUP, groupLabel = id => id, normalizedTarget, groupAdmitted, validConfig, admitted, targetAllowed } = policy;
 const client = createTeamsClient(getSkypeToken);
 const resolveAccount = (cfg) => ({accountId:'default', ...cfg.channels?.[CHANNEL]});
 function assertConfig(cfg) { if (!validConfig(resolveAccount(cfg))) throw new Error('Teams Personal policy not enabled or differs from approved account'); }
@@ -21,6 +23,7 @@ async function send(cfg, to, text) {
   if (!targetAllowed(to)) throw new Error('Teams Personal destination not approved');
   if ((await client.whoAmI()).mri !== BOT) throw new Error('Teams Personal signed-in account changed');
   assertConfig(runtime.config.current());
+  if (!targetAllowed(to)) throw new Error('Teams Personal destination no longer approved');
   const receipt = await client.sendMessage(normalizedTarget(to), text, {mentionRecipient:false});
   // Arrival time is the observed platform message id in this transport; client id is not a receipt.
   if (!receipt.arrivalTime) throw new Error('Teams accepted send without a platform id; reconcile before retry');
@@ -67,7 +70,8 @@ const plugin = {
       deliver:async(m,lifecycle)=>{
         assertAuthority();
         const cfg=runtime.config.current();
-        if (GROUPS.includes(m.conversationId)) {
+        if (m.conversationId !== CHAT) {
+          if (!policy.groupAllowed(m.conversationId)) throw new Error('Group destination no longer approved');
           const group = m.conversationId;
           if (!groupAdmitted(m,state.group.since)) throw new Error('Group event no longer admitted');
           const route=channelRuntime.routing.resolveAgentRoute({cfg,channel:CHANNEL,accountId:'default',peer:{kind:'group',id:group}});
@@ -97,6 +101,8 @@ const plugin = {
     try {
       await receiver({
         authProvider:getSkypeToken, policy, stateDir:dir,
+        enroll:createOwnerEnrollment({policy:basePolicy,current:()=>runtime.config.current(),
+          mutate:options=>runtime.config.mutateConfigFile(options),sharedEnroll,assertAuthority}),
         admit:m=>monitor.admit(m), assertAuthority, signal:ctx.abortSignal,
         status:fields=>ctx.setStatus({accountId:'default',...fields}),
         log:(event,data)=>ctx.log?.info(`Teams realtime ${event}${data?' '+JSON.stringify(data):''}`),

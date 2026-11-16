@@ -67,5 +67,7 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2']) te
     assert.equal(built.conversation.label, `label:${group}`);
     assert.equal(built.reply.to, group);
     await assert.rejects(entry.plugin.outbound.sendText({ cfg: config, to: '19:unapproved@thread.v2', text: 'must not send' }), /destination not approved/);
+    (config.channels['teams-personal'] as any).groups = { [group]: { enabled: false } };
+    await assert.rejects(monitor.admit({ conversationId: group, id: '1794800000003' }), /Group destination no longer approved/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

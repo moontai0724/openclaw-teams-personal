@@ -6,6 +6,7 @@ import { checkCredential } from '../src/auth.ts';
 import { normalize, eventResource } from '../src/messages.ts';
 import { trustedUrl, object } from '../src/protocol.ts';
 import { request, readJson } from '../src/http.ts';
+import { isGroupId } from './enrollment.mjs';
 import { PocError } from '../src/errors.ts';
 
 // Ephemeral context is isolated by conversation, bounded, and refreshed by edits.
@@ -50,10 +51,12 @@ export function legacyMessage(raw, type, chat, bot) {
 }
 
 export async function runReceiver({ authProvider, policy, stateDir, admit, assertAuthority, status, log, signal,
-  fetcher = fetch, makeSocket = url => new WebSocket(url) }) {
-  const { CHAT, GROUP, GROUPS = [GROUP], BOT, SENDER, admitted, groupAdmitted } = policy;
-  const chats = [CHAT, ...GROUPS];
-  if (!GROUPS.includes(GROUP) || new Set(chats).size !== chats.length) throw new PocError('Invalid realtime chat scope');
+  enroll, fetcher = fetch, makeSocket = url => new WebSocket(url) }) {
+  const { CHAT, GROUP, BOT, SENDER, admitted, groupAdmitted } = policy;
+  const groups = () => policy.GROUPS ?? [GROUP];
+  const chats = () => [CHAT, ...groups()];
+  const startedAt = Date.now();
+  if (new Set(chats()).size !== chats().length) throw new PocError('Invalid realtime chat scope');
   const context = new ContextWindow();
   const statePath = path.join(stateDir, 'realtime-state.json');
   let state;
@@ -66,16 +69,20 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
       chats: { [CHAT]: { baseline: previous.lastId, since: previous.since, repairedThrough: Number(previous.lastId) || previous.since },
         [GROUP]: { baseline: previous.group.lastId, since: previous.group.since, repairedThrough: Number(previous.group.lastId) || previous.group.since } } };
   }
-  if (state.version !== 1 || state.bot !== BOT || !/^[\da-f-]{36}$/.test(state.endpointId) || !state.chats?.[CHAT] || !state.chats?.[GROUP] || Object.keys(state.chats).some(chat => !chats.includes(chat))) throw new PocError('Realtime migration scope mismatch');
-  // New explicitly approved groups start at activation, without replaying old turns.
+  if (state.version !== 1 || state.bot !== BOT || !/^[\da-f-]{36}$/.test(state.endpointId) || !state.chats?.[CHAT] || !state.chats?.[GROUP] || Object.keys(state.chats).some(chat => chat !== CHAT && !isGroupId(chat))) throw new PocError('Realtime migration scope mismatch');
+  // New groups start at activation; an enrolled group retains its triggering tag.
   // Existing cursors and the transport endpoint are never reset when adding a group.
-  for (const group of GROUPS) {
+  const activate = (group) => {
     if (!state.chats[group]) {
-      const since = Date.now();
-      state.chats[group] = { baseline: String(since), since, repairedThrough: since };
+      const entry = policy.groupEntry?.(group);
+      const trigger = entry?.activationId;
+      const since = trigger ? entry.activatedAt : Date.now();
+      if (!Number.isFinite(since) || trigger && !/^[1-9]\d{0,23}$/.test(trigger)) throw new PocError('Invalid group activation fence');
+      state.chats[group] = { baseline: trigger ? String(BigInt(trigger) - 1n) : String(since), since, repairedThrough: since };
     }
-  }
-  for (const chat of chats) {
+  };
+  for (const group of groups()) activate(group);
+  for (const chat of Object.keys(state.chats)) {
     const item = state.chats[chat];
     if (!/^\d+$/.test(item.baseline) || !Number.isFinite(item.since) || !Number.isFinite(item.repairedThrough)) throw new PocError('Invalid realtime migration state');
   }
@@ -86,7 +93,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
   await save();
   const auth = async () => { assertAuthority(); return checkCredential(await authProvider(), BOT); };
   const accept = async (message, source) => {
-    if (!message || !chats.includes(message.conversationId)) return;
+    if (!message || !chats().includes(message.conversationId)) return;
     if (message.conversationId === CHAT && ![BOT, SENDER].includes(message.fromId)) return;
     context.record(message);
     if (source === 'push') {
@@ -100,7 +107,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
     message.replyToBot = Boolean(original?.fromId === BOT && original.isMine);
     const allowed = message.conversationId === CHAT ? admitted(message, item.since) : groupAdmitted(message, item.since);
     if (!allowed) return;
-    const history = GROUPS.includes(message.conversationId) ? context.history(message.conversationId, message) : undefined;
+    const history = groups().includes(message.conversationId) ? context.history(message.conversationId, message) : undefined;
     const quote = message.replyTo ? {
       id: message.replyTo.messageId, body: original?.text ?? message.replyTo.preview,
       sender: original?.from ?? message.replyTo.fromId, senderAllowed: true, isQuote: true,
@@ -117,7 +124,17 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
       const match = /\/conversations\/([^/?#]+)/.exec(String(raw.conversationLink ?? raw.resourceLink ?? ''));
       return match ? decodeURIComponent(match[1]) : undefined;
     })();
-    if (!chats.includes(chat)) return; // Drop other account events before storing or dispatching.
+    if (!chats().includes(chat)) {
+      // Account-wide push facts are checked before the unknown-room rejection;
+      // ordinary traffic is neither cached nor logged nor sent to the model.
+      if (!enroll || event.type !== 'NewMessage' || !isGroupId(chat)) return;
+      const candidate = legacyMessage(raw, event.type, chat, BOT);
+      if (!candidate || !await enroll(candidate, startedAt) || !groups().includes(chat)) return;
+      activate(chat);
+      await save();
+      log('owner_group_enrolled', { chat, id: candidate.id });
+    }
+    if (chat !== CHAT && !state.chats[chat]) { activate(chat); await save(); }
     const previous = context.find(chat, raw.id);
     const resource = event.type === 'MessageUpdate' && previous ? {
       from: previous.fromId, imdisplayname: previous.from, messagetype: 'Text', content: previous.text,
@@ -127,7 +144,8 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
     await accept(legacyMessage(resource, event.type, chat, BOT), 'push');
   };
   const repair = async () => {
-    for (const chat of chats) {
+    for (const chat of chats()) {
+      if (chat !== CHAT) activate(chat);
       const checkpoint = Date.now();
       const fence = Math.max(state.chats[chat].since, state.chats[chat].repairedThrough - 120_000);
       let next = `https://teams.live.com/api/chatsvc/consumer/v1/users/ME/conversations/${encodeURIComponent(chat)}/messages?startTime=0&pageSize=100&view=msnp24Equivalent`;
