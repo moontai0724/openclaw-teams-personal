@@ -47,6 +47,12 @@ node src/cli.ts replay --config test/fixtures/scope.json \
   destinations. Adding a group preserves existing replay cursors and starts its
   dispatch fence at activation; older text may supply context, not replayed turns.
 - Joining a group or mentioning the bot does not automatically enroll that group.
+- The shared `message` tool supports `react` and `emoji-list`. Reactions reuse the
+  installed outbound client's emoji catalogue; `remove: true` removes only the
+  bot's selected emoji. Every mutation is read back as the bot's own reaction.
+  Missing message IDs fall back only to the current Teams message in the same
+  chat. Account/destination guards remain in force; no new dependency is added.
+  An unverified outcome is reported without automatically resending the mutation.
 
 See [status](docs/STATUS.md) for observed verification; synthetic fixtures and local
 tests never establish successful Teams registration or actual message delivery.

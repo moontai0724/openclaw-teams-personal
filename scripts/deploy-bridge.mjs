@@ -25,13 +25,16 @@ if (values.restore) {
   const source = `import { defineChannelPluginEntry } from 'openclaw/plugin-sdk/channel-core';
 import { dispatchInboundDirectDm, dispatchChannelInboundTurn } from 'openclaw/plugin-sdk/channel-inbound';
 import { createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, createChannelMessageAdapterFromOutbound } from 'openclaw/plugin-sdk/channel-outbound';
+import { jsonResult } from 'openclaw/plugin-sdk/channel-actions';
 import { getSkypeToken, hasSavedLogin } from '../upstream/src/auth.js';
 import { createTeamsClient } from '../upstream/src/core/teams.js';
+import { REACTION_EMOJIS, normalizeReactionKey } from '../upstream/src/core/emojis.js';
 import * as policy from './policy.mjs';
 import { createTeamsChannel } from './realtime.mjs';
 export default createTeamsChannel({ getSkypeToken, hasSavedLogin, createTeamsClient, policy,
+  reactionEmojis: REACTION_EMOJIS, normalizeReactionKey,
   sdk: { defineChannelPluginEntry, dispatchInboundDirectDm, dispatchChannelInboundTurn,
-    createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, createChannelMessageAdapterFromOutbound } });
+    createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, createChannelMessageAdapterFromOutbound, jsonResult } });
 `;
   if (values['dry-run']) process.stdout.write(source);
   else {

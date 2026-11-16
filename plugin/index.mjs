@@ -1,10 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { runReceiver } from './receiver.mjs';
+import { createTeamsActions } from './actions.mjs';
 
 // The deployment bridge supplies the host's SDK and existing approved auth/client.
 // This keeps the repository independent of machine paths and credential storage.
-export function createTeamsChannel({ sdk, getSkypeToken, hasSavedLogin, createTeamsClient, policy, receiver = runReceiver }) {
+export function createTeamsChannel({ sdk, getSkypeToken, hasSavedLogin, createTeamsClient, policy,
+  reactionEmojis, normalizeReactionKey, receiver = runReceiver }) {
 const { defineChannelPluginEntry, dispatchInboundDirectDm, dispatchChannelInboundTurn,
   createChannelIngressMonitor, bindIngressLifecycleToReplyOptions,
   createChannelMessageAdapterFromOutbound } = sdk;
@@ -30,7 +32,9 @@ const outbound = {deliveryMode:'direct', textChunkLimit:6000,
 const plugin = {
   id:CHANNEL,
   meta:{id:CHANNEL,label:'Teams Personal',selectionLabel:'Teams Free (personal)',docsPath:'/channels/msteams',blurb:'Unofficial personal-account text transport'},
-  capabilities:{chatTypes:['direct','group'],media:false},
+  capabilities:{chatTypes:['direct','group'],media:false,reactions:true},
+  actions:createTeamsActions({policy,currentConfig:()=>runtime.config.current(),getSkypeToken,
+    createTeamsClient,reactionEmojis,normalizeReactionKey,jsonResult:sdk.jsonResult}),
   config:{listAccountIds:()=>['default'],resolveAccount,
     inspectAccount:(cfg)=>({accountId:'default',enabled:validConfig(resolveAccount(cfg)),configured:hasSavedLogin()}),
     isEnabled:(a)=>validConfig(a),isConfigured:()=>hasSavedLogin(),
@@ -38,7 +42,7 @@ const plugin = {
   },
   security:{resolveDmPolicy:()=>({policy:'allowlist',allowFrom:[SENDER],policyPath:'channels.teams-personal.dmPolicy',allowFromPath:'channels.teams-personal.allowFrom',approveHint:'Only the owner-approved test DM is enabled.'})},
   messaging:{normalizeTarget:(to)=>targetAllowed(to)?normalizedTarget(to):undefined,targetResolver:{looksLikeId:targetAllowed,hint:CHAT}},
-  agentPrompt:{inboundFormattingHints:()=>['Teams Personal text-only chat. In groups, respond only to mentions, commands, or replies to your messages; if the body addresses someone else, stay silent. Keep group and private history separate. Reply in natural Traditional Chinese. No attachments, tables, or rich cards.'],messageToolHints:()=>['Reply only to the current Teams conversation; do not send private content to a group.']},
+  agentPrompt:{inboundFormattingHints:()=>['Teams Personal text-only chat with emoji reactions. In groups, respond only to mentions, commands, or replies to your messages; if the body addresses someone else, stay silent. Keep group and private history separate. Reply in natural Traditional Chinese. No attachments, tables, or rich cards.'],messageToolHints:()=>['Reply only to the current Teams conversation; do not send private content to a group. Use message(action=react, messageId, emoji) to react; remove=true removes only your selected emoji. emoji-list lists supported glyphs and keys. An omitted messageId uses only the current Teams message. Do not resend an unverified reaction. When asked only to react, a verified reaction is the complete reply; do not add a text confirmation.']},
   outbound,
   message:createChannelMessageAdapterFromOutbound({id:CHANNEL,outbound}),
   gateway:{startAccount:async (ctx)=>{

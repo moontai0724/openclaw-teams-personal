@@ -79,6 +79,27 @@ reply readback. Test untagged context + mention, quoted reply, edit, and reconne
 Ordinary unmentioned messages and edits must not cause an extra reply. The DM
 sender guard and separate DM/group sessions must remain in force.
 
+## Emoji reactions
+
+Use `message(action: "emoji-list")` to discover the installed client's supported
+glyphs and keys. In the approved Teams conversation, use
+`message(action: "react", messageId: "<observed ID>", emoji: "👍")`.
+The same action with `remove: true` removes only that selected bot reaction.
+An omitted ID may use the current inbound Teams message, never one from another
+conversation/provider. Removal requires an explicit emoji; empty input does not
+clear every reaction. Dry-run validates the request without account/network I/O.
+
+Acceptance must establish one added bot reaction by platform readback, no duplicate
+on a repeated request, and removal without changing another user's reaction.
+Verify that reaction updates do not open a new model turn or produce a text reply.
+The action reads before writing and verifies its own identity after writing;
+`ok: false, verified: false` is not a delivery receipt. A lost mutation response
+may be reconciled by readback, but must not trigger an automatic second write.
+Account, destination and host handoff checks also run during token preparation.
+
+This action capability does not enable new groups, background reactions, or
+receipt-only acknowledgement of arbitrary unmentioned messages.
+
 On session shutdown, late HTTP completion must not restore connected status,
 schedule renewal or start recovery. Reconnect tests must use their own endpoint
 and journal. Keep connection/repair success separate from actual missed-message
