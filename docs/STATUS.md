@@ -1,6 +1,7 @@
 # Status
 
-Stage: scaffold. No live account operations have run.
+Stage: protocol framing and message normalization pass offline tests. No live
+account operations have run. Transport and capture CLI are still in development.
 
 Accepted scope: a separate private repository and staged commits/pushes for a
 single-group, receive-only transport PoC. Group testing waits for the owner to
