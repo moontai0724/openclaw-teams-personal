@@ -1,0 +1,12 @@
+{
+  "name": "openclaw-teams-personal-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "node scripts/check.mjs",
+    "poc": "node src/cli.ts"
+  }
+}
