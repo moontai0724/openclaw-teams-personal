@@ -1,14 +1,28 @@
 # Status
 
-Stage: original replacement connected; additional test-group deployment prepared.
+Stage: two explicitly approved groups deployed and connected; live acceptance pending.
 
 2026-11-16: the owner authorized adding the newly joined test group in Telegram
 topic 189, message 221. This is one explicit allowlist addition, not automatic
 group enrollment. The channel now supports per-group routing, history and outbound
 guards; state migration adds only the new activation fence while preserving the
-existing DM/group cursors and endpoint. Deployment/reload confirmation is pending.
+existing DM/group cursors and endpoint.
 All 26 offline tests and syntax checks pass, including two-group ingress/reply
 isolation, legacy/existing-state migration, and rejection of pre-activation turns.
+
+2026-11-16 17:40:01 Asia/Taipei: runtime generation 4 applied commit `2ac642a`
+without a Gateway restart. The selected entry remains the deployment bridge at
+`/home/openclaw/.openclaw/workspace/integrations/teams-personal/plugin/index.mjs`;
+the reload receipt reports source digest
+`d3249e44b5dd3b0781f3a401d229e57e1c7ac3a89b83fedf696ed0710421e120`.
+At 17:40:02 the runtime authenticated and registered; scoped history repair,
+including server-reported message-loss recovery, completed by 17:40:04.
+The channel snapshot confirms `running: true`, `connected: true`,
+`lifecycle: ready`, `restartPending: false`, and `lastError: null`.
+The deployed policy contains both approved groups, and persisted realtime state
+contains the existing DM/group plus the new group's activation fence and repair
+checkpoint. No new scoped push has been observed after this reload; inherited
+event/inbound timestamps do not establish receipt under generation 4.
 
 2026-11-16 15:41:48 Asia/Taipei: OpenClaw applied the `teams-personal`
 replacement without a Gateway restart (runtime generation 3). The deployed source
@@ -36,7 +50,7 @@ deployment bridge preserves the old entry for rollback. Groups are not auto-enro
 
 ## Completion evidence
 
-1. Confirmed: 24 offline protocol/validation/recovery/channel tests and syntax
+1. Confirmed: 26 offline protocol/validation/recovery/channel tests and syntax
    checks pass.
 2. Confirmed: a bounded live run and the replacement Gateway runtime both reach
    authenticated and registered state.
