@@ -1,7 +1,9 @@
 # Transport map and evidence
 
-Observed 2026-11-16. Public deployed code was read as data; no authenticated
-handshake or account registration has yet been observed for this PoC.
+Observed 2026-11-16. Public deployed code was read as data. Subsequent bounded
+account runs and the Gateway channel authenticated and registered successfully;
+new-group text/update events and agent replies have also been observed. See
+[status](STATUS.md) for acceptance evidence and remaining live tests.
 
 ## Selected wire path
 

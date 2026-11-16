@@ -70,6 +70,7 @@ async function session(deps: Deps, options: Options, credential: Awaited<ReturnT
     socket.close(); done();
   };
   const later = (work: () => void, ms: number) => {
+    if (signal.aborted) return;
     const timer = setTimeout(() => {
       timers.delete(timer);
       if (!finished) { try { work(); } catch (error) { finish(error); } }
@@ -90,6 +91,9 @@ async function session(deps: Deps, options: Options, credential: Awaited<ReturnT
       body: JSON.stringify(registration(options.endpointId, route)),
     }, signal);
     await response.body?.cancel();
+    // An abort may occur while the successful response is being released.
+    // Never resurrect connected status or schedule renewal for a closed session.
+    if (signal.aborted) return;
     deps.log(ready ? 'registration_renewed' : 'registered');
     later(() => { void renew(route).catch(finish); }, Math.max(30_000, (Math.min(route.ttl, 3600) - 30) * 1000));
   };

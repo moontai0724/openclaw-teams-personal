@@ -114,3 +114,27 @@ test('socket closure reconnects with the same endpoint and repairs each authenti
   assert.equal(repaired, 2);
   assert.deepEqual(registrations, [options.endpointId, options.endpointId]);
 });
+
+test('stopped registration cannot report connected or start recovery after a late HTTP completion', async (t) => {
+  // Abort can win after HTTP headers arrive but before response cleanup completes.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const controller = new AbortController();
+  const socket = new FakeSocket();
+  const events: string[] = [];
+  let ready = false;
+  const run = listen({ auth, socket: () => socket,
+    fetch: (async () => new Response(new ReadableStream({
+      cancel() { controller.abort(); },
+    }), { status: 201 })) as typeof fetch,
+    onReady: async () => { ready = true; }, onBody: async () => {}, onLoss: async () => {},
+    log: event => { events.push(event); },
+  }, options, controller.signal);
+  await new Promise(resolve => setImmediate(resolve));
+  socket.receive('1::');
+  socket.receive(eventFrame('trouter.connected', [route]));
+  await run;
+  assert.equal(socket.readyState, 3);
+  assert.equal(ready, false);
+  assert.equal(events.includes('registered'), false);
+  assert.equal(events.includes('registration_renewed'), false);
+});

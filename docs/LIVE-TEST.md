@@ -79,6 +79,15 @@ reply readback. Test untagged context + mention, quoted reply, edit, and reconne
 Ordinary unmentioned messages and edits must not cause an extra reply. The DM
 sender guard and separate DM/group sessions must remain in force.
 
+On session shutdown, late HTTP completion must not restore connected status,
+schedule renewal or start recovery. Reconnect tests must use their own endpoint
+and journal. Keep connection/repair success separate from actual missed-message
+recovery: exit 2 with zero push events is incomplete, even if reconnect succeeded.
+To exercise history deduplication without sending chat messages, reuse an isolated
+journal whose activation fence includes existing authorized test messages; verify
+that repair on the second connection adds no duplicate event keys. This does not
+replace a real message sent during the gap or the native production queue check.
+
 Rollback: run the bridge script with the same target and `--restore`, then reload
 the plugin. Preserve both state files and the existing native queue. Do not
 uninstall the old upstream client or delete credentials during migration.

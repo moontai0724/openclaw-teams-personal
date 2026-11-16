@@ -1,6 +1,32 @@
 # Status
 
-Stage: two explicitly approved groups deployed and connected; live acceptance pending.
+Stage: new-group text/context/reply acceptance and isolated reconnect confirmed;
+registrar shutdown fix awaiting deployment.
+
+2026-11-16 17:46-17:47 Asia/Taipei: the owner accepted the new group's current
+behavior in Telegram topic 189, messages 226 and 228, and requested continuation.
+Runtime logs show two ordinary messages, their update events, two addressed
+requests and two bot replies. The native group session contains exactly those two
+requests and replies; scoped platform readback confirms both bot reply IDs and the
+updated versions of the ordinary messages. No extra turns were started for the
+untagged messages or edits. The agent used the current edited content; the context
+cache intentionally replaces earlier versions, so an edit-before/after audit trail
+is not provided. Real message capture data is not committed.
+
+The next reliability patch prevents a late successful registrar response from
+reporting connected or scheduling renewal after the session has stopped. A new
+test reproduces the race by aborting during response cleanup; it failed before
+the fix. All 27 tests and syntax checks now pass. This patch is not yet deployed.
+
+2026-11-16 17:50-17:52 Asia/Taipei: two bounded receive-only runs used fresh
+isolated endpoints, without interrupting the production channel or invoking the
+model. Both completed a forced disconnect, reauthenticated, registered again and
+completed history repair. The second run included the new group's existing test
+traffic: four unique non-bot message keys were recovered initially; repair after
+reconnect added zero duplicate keys. Both runs ended cleanly at their deadline.
+No new message arrived during either run (exit 2), so this establishes connection
+recovery and isolated history deduplication, not missed-live-message recovery or
+production queue deduplication.
 
 2026-11-16: the owner authorized adding the newly joined test group in Telegram
 topic 189, message 221. This is one explicit allowlist addition, not automatic
@@ -21,8 +47,8 @@ The channel snapshot confirms `running: true`, `connected: true`,
 `lifecycle: ready`, `restartPending: false`, and `lastError: null`.
 The deployed policy contains both approved groups, and persisted realtime state
 contains the existing DM/group plus the new group's activation fence and repair
-checkpoint. No new scoped push has been observed after this reload; inherited
-event/inbound timestamps do not establish receipt under generation 4.
+checkpoint. No new scoped push had been observed at that initial check; the
+17:43-17:45 events and subsequent acceptance above establish later receipt.
 
 2026-11-16 15:41:48 Asia/Taipei: OpenClaw applied the `teams-personal`
 replacement without a Gateway restart (runtime generation 3). The deployed source
@@ -34,8 +60,8 @@ The subsequent Gateway channel snapshot reports `running: true`,
 
 No scoped group push had been observed at the initial deployment check. This
 historical snapshot does not establish the current live acceptance result.
-Real group message, mention/reply, edit and controlled-reconnect acceptance remain
-open; do not claim group model/reply end-to-end acceptance yet.
+The later new-group acceptance above establishes text/context/model/reply behavior;
+quoted-reply triggering and missed-message recovery need separate observations.
 
 2026-11-16 15:25:46 Asia/Taipei: a bounded run with the existing bot account
 completed WebSocket authentication, registrar acceptance and scoped history repair.
@@ -50,20 +76,20 @@ deployment bridge preserves the old entry for rollback. Groups are not auto-enro
 
 ## Completion evidence
 
-1. Confirmed: 26 offline protocol/validation/recovery/channel tests and syntax
+1. Confirmed: 27 offline protocol/validation/recovery/channel tests and syntax
    checks pass.
 2. Confirmed: a bounded live run and the replacement Gateway runtime both reach
    authenticated and registered state.
-3. Pending: a new group message arrives as a Trouter event without periodic
-   history reads, enters native ingress when addressed, and receives one reply
-   confirmed by platform readback.
-4. Pending: untagged text, native mention and reply metadata survive normalization;
-   an actual edit refreshes context without starting an extra turn.
-5. Pending: a controlled reconnect recovers missed messages without duplicate
-   delivery.
+3. Confirmed: two new-group requests arrive as Trouter events, enter native
+   ingress and each receive one reply confirmed by scoped platform readback.
+4. Confirmed: actual edits refresh the current context without an extra turn.
+   Native quoted-reply triggering remains a separate live acceptance item;
+   retaining superseded text is not part of the current implementation.
+5. Confirmed: isolated real reconnect/authentication/registration/repair and four
+   historical event keys without duplication. Pending: a real message sent during
+   a connection gap, plus production native-queue recovery without duplicate reply.
 
-Items 3-5 require real Teams observations and are not proved by mocks. Next,
-the owner sends/edits test text in either explicitly approved Teams group, then mentions
-the bot. After the owner reports that test here, inspect scoped runtime event IDs,
-native ingress/session outcomes and platform reply readback. Do not expand chat
-scope, send test messages on the owner's behalf, or reset replay state.
+Live acceptance requires real Teams observations and is not proved by mocks.
+Deploy the registrar shutdown fix and inspect production repair/deduplication. A run without
+a real message during its gap cannot prove recovery of missed traffic. Do not
+expand chat scope, send test messages on the owner's behalf, or reset replay state.
