@@ -125,6 +125,13 @@ uninstall the old upstream client or delete credentials during migration.
 
 ## Owner native-tag enrollment
 
+Deployment checkpoint (2026-11-16): generation 7 loaded at 18:46:03 Asia/Taipei;
+the verified channel-local identity and two-room config were activated by native
+deferred application at 18:50:37. Authentication/registration/recovery succeeded
+and the channel reports ready with no error. Existing traffic was not replied to
+again. The remaining acceptance below requires a genuinely unlisted group and a
+real owner tag; do not reload or remove an approved room just to create a test.
+
 The host provides the existing shared enrollment core through the deployment
 bridge. Teams projects `enrollmentOwnerId` into that core's owner decision only;
 it never writes global `commands.ownerAllowFrom` or grants management authority.

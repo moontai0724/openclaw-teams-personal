@@ -3,15 +3,27 @@
 Stage: new-group text/context/native-quote acceptance and isolated reconnect
 confirmed; registrar shutdown fix deployed, production repair/replay check passed.
 Emoji reactions are accepted by the owner (Telegram topic 189, message 254).
-Owner native-tag enrollment commit `e1e3337` is committed/pushed and its bundle,
-bridge and additive manifest schema are deployed. Runtime reload and scoped
-config activation remain pending.
+Owner native-tag enrollment commit `e1e3337` is deployed and loaded. Generation 7
+applied at 18:46:03 Asia/Taipei without a Gateway restart (source digest
+`cb80d093ffc38fd0682be977aff055c254416afc6eb07d27340e22d2b915fb3e`).
+Channel-local config activation was accepted at 18:50:37 after a deferred drain;
+authentication, registration and scoped recovery completed by 18:50:40. The
+subsequent channel snapshot is running/connected/ready, with no pending restart
+or last error. No additional manual reload is needed.
 
 The new adapter reuses the host shared core, adds exact dynamic room policy and
 first-tag activation recovery, and does not grant global ownership. Forty tests
 pass with the host core supplied, plus syntax checks. The separate existing
 shared enrollment/LINE-history suite passes all 19 cases. Enrollment has not yet
 been exercised by a real owner tag in an unlisted Teams group.
+
+Post-activation checks at 18:52:50 confirm the two exact existing rooms, all-member
+mention gating, original DM/account fields, endpoint/activation fences and legacy
+watermark are preserved. An exact comparison with the pre-patch config backup
+shows no changes outside the three authorized Teams fields. Platform readback
+contains the same 11 test-group messages and three original bot replies, with
+zero bot replies after config activation. This proves existing-traffic recovery
+without duplicate replies, not new-room enrollment.
 
 The owner supplied a screenshot during this task; its existing request/reply pair
 matched the approved DM's platform readback, establishing the Teams identity for
@@ -199,9 +211,26 @@ traffic. Do not expand chat scope, send test messages on the owner's behalf, or
 reset replay state.
 
 
-Deployment handoff: the setup tool declined the initial scoped config update
-because its loaded channel schema predates these new fields; no config was
-written. Reload the deployed plugin first, then enable only channel-local owner
-enrollment and migrate the existing two exact rooms. Do not modify global owners,
-login, transport endpoint or replay state. User confirmation of identity was
-received before enabling this role.
+Deployment history: the initial setup attempt declined the old loaded schema
+and wrote nothing. After generation 7 loaded the new schema, the authorized
+three-field config patch was persisted. Its first application hit the 60-second
+retained-work drain limit; native deferred application later succeeded at
+18:50:37. The resulting role is channel-local only. User confirmation of identity
+preceded activation; global owners, login, transport endpoint and replay state
+were not changed.
+
+## Media support checkpoint
+
+The owner asked to revisit image/media receipt and sending after whitelist work
+(Telegram topic 189, message 274). The current adapter declares `media:false`,
+passes only normalized text/history to native ingress, and rejects outbound
+media payloads. It does not download incoming pictures or attach image bytes to
+model context. The installed upstream client exposes `getSharedFiles` and
+`readAttachment`, including image download, but the channel does not call them.
+No upload/image-send method is wired into outbound delivery. These are source
+inspection findings, not live media acceptance.
+
+The next proposed feature is scoped incoming image download and model handoff,
+then outgoing image upload/send with platform readback. General files, audio and
+video remain outside the implemented scope. No media code was added at this
+checkpoint.
