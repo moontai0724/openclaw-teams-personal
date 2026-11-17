@@ -78,7 +78,8 @@ node src/cli.ts replay --config test/fixtures/scope.json \
   exits depend on Teams expiry; offline presentation is not guaranteed immediate.
   Presence errors are contained and do not stop text receipt/replies.
 
-Presence is loaded in production generation 4 (2026-11-17 09:35 Asia/Taipei).
+Presence first loaded in production generation 4 (2026-11-17 09:35 Asia/Taipei);
+the current independent deployment is recorded in `docs/STATUS.md`.
 The normal 60-second refresh succeeded and self-readback is Available/Available;
 requester-observed green-dot visibility remains unverified. See the status record
 for deployed artifact provenance and the pending UI check.

@@ -9,14 +9,41 @@ files, read-file and explicit mark-read. The original encrypted credential data,
 approved identities, group map, transport endpoint and replay fences are retained.
 No third-party source was copied into this implementation. No npm package was added.
 
-All 66 offline tests pass, including the host enrollment/typing integrations;
+All 67 offline tests pass, including the host enrollment/typing integrations;
 syntax checks pass. A bounded real client run authenticated the approved account,
 read test-group history and a known bot message, sent one test text, verified its
 edit and deletion, uploaded an original text file, downloaded the identical bytes
 and removed the test message. The round-trip SHA-256 is
 `687864ca5430d464990bb47c878e405da1d1b4022aa9aaa38383a315021c70d3`.
 These are client/API checks, not post-deployment native-tool/model acceptance.
-Production replacement and old runtime removal are still pending.
+Commit `ea404a9` loaded at 10:38:46 Asia/Taipei without a Gateway restart
+(generation 6, `restartRequired: false`, source digest
+`bb9ab22e350fbac978f9509605f34e33e904c277ef6fddce6dd7f9cb4eaf938c`).
+The manifest declares `contracts.tools: ["teams_chat"]`; host capability consent
+was accepted for that requested tool. Read-only host discovery resolves its
+scoped factory without account I/O; actual model invocation remains unverified. The earlier generation-5 runtime connected
+but the host rejected tool registration without this contract; the regression
+is covered by the additional deployment test. No second reload is needed.
+Authentication/registration and presence succeeded at 10:38:47; scoped recovery
+completed by 10:38:50. The channel is running/connected/ready, with no pending
+restart or last error. The normal presence refresh succeeded at 10:39:47.
+The bridge/bundle contain no vendor imports. Bundle SHA-256:
+`5a8f6239391d1b5c8cb49fab8e770eea1a9be353060e29fcd04359071ec82284`.
+
+At 10:40:11 a fresh native addressed test-room request reached Trouter and native
+ingress, produced one model reply, and was read back from Teams. Native typing
+started/stopped around that turn. The scoped history grew from 19 messages/seven
+bot messages to 21/eight; its only post-reload bot message is that fresh reply,
+not replay of old requests. No raw message/account identifiers are committed.
+Config-file, local policy and legacy watermark hashes, messaging endpoint, bot
+identity and activation fences match the private pre-replacement baseline.
+Host capability acceptance metadata is the intentional configuration delta.
+
+The former vendor directory and polling backup were moved out of the live
+integration into a gitignored private retirement archive. Credential storage and
+replay state were not moved or reset. Rollback uses a reviewed independent source
+revision. Fresh native file receipt/return, current-chat tool invocation and the
+requester's typing/presence UI observations remain separate acceptance items.
 
 ## Native online presence (2026-11-17)
 
@@ -249,7 +276,8 @@ checkpoint. No new scoped push had been observed at that initial check; the
 
 2026-11-16 15:41:48 Asia/Taipei: OpenClaw applied the `teams-personal`
 replacement without a Gateway restart (runtime generation 3). The deployed source
-is commit `7497e9b`; the previous polling entry remains available for rollback.
+is commit `7497e9b`; a polling backup existed at that historical checkpoint.
+That runtime is now retired; use the independent-revision rollback above.
 At 15:41:49-15:41:51 the new runtime authenticated, registered its route and
 completed scoped history repair, including server-reported message-loss recovery.
 The subsequent Gateway channel snapshot reports `running: true`,
@@ -269,13 +297,13 @@ registration, not incoming message delivery. No model turn was invoked by the CL
 Accepted scope: independent private repository and staged commits/pushes. The owner
 subsequently expanded the task to actual replacement and Gateway connection,
 retaining the existing bot identity and approved group/DM scope. The subsequent
-message 221 explicitly adds one new test group while retaining prior access. A
-deployment bridge preserves the old entry for rollback. Owner-tag enrollment
+message 221 explicitly adds one new test group while retaining prior access. The
+initial deployment bridge preserved a polling rollback entry; it is now retired. Owner-tag enrollment
 was subsequently authorized in message 254; its current status is recorded above.
 
 ## Completion evidence
 
-1. Confirmed: 66 offline protocol/validation/recovery/channel/action/account/client/media tests and syntax
+1. Confirmed: 67 offline protocol/validation/recovery/channel/action/account/client/media tests and syntax
    checks pass.
 2. Confirmed: a bounded live run and the replacement Gateway runtime both reach
    authenticated and registered state.

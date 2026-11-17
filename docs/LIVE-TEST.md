@@ -245,10 +245,20 @@ Before replacement, run offline gates and a bounded direct client check in the
 existing approved test room. Use only newly created bot messages for edit/delete.
 Read back message IDs and download the sent original to compare bytes; an upload
 receipt alone does not prove the delivered file. Keep captures in gitignored local/.
-The current direct run passed auth, history, send, edit, delete and byte-identical
+The 2026-11-17 direct run passed auth, history, send, edit, delete and byte-identical
 file round-trip; both newly created test messages were removed.
 
-After replacement, verify current generation, selected entry, authentication,
+Production checkpoint: `ea404a9` loaded as generation 6 at 10:38:46 Asia/Taipei,
+without a Gateway restart. Manifest tool capability consent was accepted;
+authentication/registration/presence and scoped recovery succeeded. The 10:40
+fresh addressed turn produced exactly one native model reply with typing start/
+stop, confirmed by platform readback. Existing requests were not replayed.
+The vendor directory and polling backup are now in a private gitignored retirement
+archive, not the active integration; credential and replay state remain in place.
+67 host offline tests and syntax checks pass. These observations do not establish
+native file return or `teams_chat` invocation by a real addressed turn.
+
+For future replacement, verify current generation, selected entry, authentication,
 registration and repair. Confirm the active bridge/bundle has no vendor imports.
 Retire the old runtime directory only after those checks; preserve a private
 rollback copy until native acceptance is complete. Send a fresh tag and original
