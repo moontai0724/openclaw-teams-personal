@@ -165,12 +165,20 @@ with the bot's native MRI mention. Replies, commands, forwards, edits, history
 repair, plain names and join events do not qualify. Disabled channel/room policies
 are respected. Ordinary unmentioned traffic causes no extra persistence/API calls.
 
+Group policy is read from the published runtime snapshot at receive, queue and
+send time. Room-only changes publish dynamically without replacing the plugin or
+restarting the channel. Enrollment waits up to five seconds for its exact
+activation fence to publish; abort, revocation, replacement or timeout prevents
+admission. A timeout retains the saved fence for normal connection recovery.
+
 In a genuinely unlisted room, first send ordinary owner text and verify no
 admission. Then send the native tag. Verify one exact room entry with
 `allowFrom: ['*']`, `requireMention: true` and the trigger's `activationId` /
 `activatedAt`; confirm one ingress/model/reply without older replayed requests.
-Have another member tag the bot to verify ordinary member access. Existing room,
-DM, endpoint and replay settings must remain intact. Use real events; do not remove
+Have another member tag the bot to verify ordinary member access. Repeat the
+first-tag check while an unrelated long agent turn is active; confirm there is
+no plugin-drain timeout or channel restart. Existing room, DM, endpoint and
+replay settings must remain intact. Use real events; do not remove
 an approved room or inject production events to manufacture this test.
 
 ## Receive-only CLI

@@ -205,14 +205,22 @@ test('owner push enrolls before rejection, admits the first tag, excludes old tu
     admitted: (m: any) => m.conversationId === dm && m.fromId === owner,
     groupAdmitted: (m: any) => m.conversationId === group && m.fromId !== bot && m.mentions.some((x: any) => x.mri === bot),
   };
-  const cfg: any = { channels: { 'teams-personal': { enabled: true, enrollmentOwnerId: owner,
+  let cfg: any = { channels: { 'teams-personal': { enabled: true, enrollmentOwnerId: owner,
     groups: { [group]: { requireMention: true, allowFrom: ['*'] } } } } };
   const policy = createScopedPolicy(base, () => cfg);
   const token = `header.${Buffer.from(JSON.stringify({ skypeid: 'live:.cid.synthetic' })).toString('base64url')}.signature`;
   const admitted: any[] = [];
   let writes = 0;
   const enrollment = createOwnerEnrollment({ policy: base, current: () => cfg, sharedEnroll: enrollOwnerGroup,
-    assertAuthority() {}, mutate: async (options: any) => { options.writeOptions.assertCurrent(); const result = options.mutate(cfg); writes++; return { result }; },
+    assertAuthority() {}, mutate: async (options: any) => {
+      options.writeOptions.assertCurrent();
+      const draft = structuredClone(cfg);
+      const result = options.mutate(draft);
+      writes++;
+      // Host writes and runtime publication are separate edges; no reconnect.
+      setImmediate(() => { cfg = draft; });
+      return { result };
+    },
   });
   await writeFile(join(root, 'watermark.json'), JSON.stringify({ since: time - 5000, lastId: String(time - 5000),
     group: { since: time - 5000, lastId: String(time - 5000) } }));

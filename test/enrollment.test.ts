@@ -113,3 +113,68 @@ test('host shared core: fail closed until identity confirmed; disabled rooms, re
   assert.equal(writes, 1);
   assert.deepEqual(cfg.commands.ownerAllowFrom, ['telegram:synthetic-owner']);
 });
+
+test('persisted enrollment waits for the immutable published snapshot, without admitting the draft', async () => {
+  let published: any = config();
+  const policy = createScopedPolicy(base, () => published);
+  let persisted: any;
+  let release!: () => void;
+  const written = new Promise<void>(resolve => { release = resolve; });
+  const enroll = createOwnerEnrollment({ policy: base, current: () => published, assertAuthority() {},
+    sharedEnroll: async (_facts: any, deps: any) => ({ changed: (await deps.mutate({
+      mutate: (draft: any) => { draft.channels[channel].groups[newGroup] = { requireMention: true, allowFrom: ['*'] }; return true; },
+    })).result }),
+    mutate: async (options: any) => {
+      persisted = structuredClone(published);
+      options.writeOptions.assertCurrent();
+      const result = options.mutate(persisted);
+      release();
+      return { result };
+    },
+  });
+  let settled = false;
+  const pending = enroll(msg(), startedAt).then(result => { settled = true; return result; });
+  await written;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal(policy.groupAllowed(newGroup), false);
+  assert.equal(policy.groupAdmitted(msg(), 0), false);
+  assert.equal(policy.targetAllowed(newGroup), false);
+  assert.equal(persisted.channels[channel].groups[newGroup].activationId, msg().id);
+  published = persisted;
+  assert.equal(await pending, true);
+  assert.equal(policy.groupAllowed(newGroup), true);
+  assert.equal(policy.groupAdmitted(msg(), 0), true);
+  assert.equal(policy.targetAllowed(newGroup), true);
+});
+
+for (const outcome of ['owner-revoked', 'room-disabled', 'superseded', 'abort', 'timeout']) {
+  test(`unpublished enrollment fails closed on ${outcome}`, async () => {
+    let published: any = config();
+    const controller = new AbortController();
+    const enroll = createOwnerEnrollment({ policy: base, current: () => published, assertAuthority() {},
+      signal: controller.signal, activationTimeoutMs: 40,
+      sharedEnroll: async (_facts: any, deps: any) => ({ changed: (await deps.mutate({
+        mutate: (draft: any) => { draft.channels[channel].groups[newGroup] = { requireMention: true, allowFrom: ['*'] }; return true; },
+      })).result }),
+      mutate: async (options: any) => {
+        const draft = structuredClone(published);
+        options.writeOptions.assertCurrent();
+        const result = options.mutate(draft);
+        setImmediate(() => {
+          const next = structuredClone(published);
+          if (outcome === 'owner-revoked') delete next.channels[channel].enrollmentOwnerId;
+          if (outcome === 'room-disabled') next.channels[channel].groups[newGroup] = { enabled: false };
+          if (outcome === 'superseded') next.channels[channel].groups[newGroup] = {
+            ...draft.channels[channel].groups[newGroup], activationId: '1794800000999' };
+          if (outcome === 'abort') controller.abort();
+          published = next;
+        });
+        return { result };
+      },
+    });
+    await assert.rejects(enroll(msg(), startedAt), outcome === 'abort' ? { name: 'AbortError' } :
+      outcome === 'timeout' ? /persisted but runtime activation timed out/ : /authorization changed|revoked or superseded/);
+    assert.equal(createScopedPolicy(base, () => published).groupAllowed(newGroup), outcome === 'superseded');
+  });
+}

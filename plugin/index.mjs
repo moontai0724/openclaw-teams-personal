@@ -79,6 +79,8 @@ async function deliverPayload(to, payload, assertAuthority) {
 const plugin = {
   id:CHANNEL,
   meta:{id:CHANNEL,label:'Teams Personal',selectionLabel:'Teams Free (personal)',docsPath:'/channels/msteams',blurb:'Independent personal-account chat transport'},
+  // Group gates read published policy at receive, queue and send time.
+  reload:{configPrefixes:[`channels.${CHANNEL}`],noopPrefixes:[`channels.${CHANNEL}.groups`]},
   capabilities:{chatTypes:['direct','group'],media:true,reactions:true},
   actions:createTeamsActions({policy,currentConfig:()=>runtime.config.current(),getSkypeToken,
     createTeamsClient,reactionEmojis,normalizeReactionKey,jsonResult:sdk.jsonResult}),
@@ -194,7 +196,7 @@ const plugin = {
       await receiver({
         authProvider:getSkypeToken, policy, stateDir:dir,
         enroll:createOwnerEnrollment({policy:basePolicy,current:()=>runtime.config.current(),
-          mutate:options=>runtime.config.mutateConfigFile(options),sharedEnroll,assertAuthority}),
+          mutate:options=>runtime.config.mutateConfigFile(options),sharedEnroll,assertAuthority,signal:ctx.abortSignal}),
         admit:m=>monitor.admit(m), assertAuthority, signal:ctx.abortSignal,
         status:fields=>{
           ctx.setStatus({accountId:'default',...fields});

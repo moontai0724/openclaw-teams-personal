@@ -1,3 +1,5 @@
+import { setTimeout as delay } from 'node:timers/promises';
+
 // Host-supplied shared enrollment core; this adapter never grants global ownership.
 export const isGroupId = id => typeof id === 'string' && /^19:[a-zA-Z0-9-]+@thread\.v2$/.test(id);
 export const isDmId = id => typeof id === 'string' && /^19:uni01_[a-zA-Z0-9_-]+@thread\.v2$/.test(id);
@@ -51,7 +53,7 @@ export function createScopedPolicy(base, current) {
   };
 }
 
-export function createOwnerEnrollment({ policy, current, mutate, sharedEnroll, assertAuthority }) {
+export function createOwnerEnrollment({ policy, current, mutate, sharedEnroll, assertAuthority, signal, activationTimeoutMs = 5_000 }) {
   const project = cfg => {
     const account = cfg.channels?.[policy.CHANNEL];
     const enabled = policy.validConfig(account);
@@ -80,8 +82,7 @@ export function createOwnerEnrollment({ policy, current, mutate, sharedEnroll, a
           const projected = project(draft);
           const changed = options.mutate(projected);
           if (changed) {
-            // Persist the triggering fence with admission, so a config-triggered restart
-            // repairs this first tag without replaying older conversation turns.
+            // Connection recovery retains this tag while fencing earlier requests.
             projected.channels[policy.CHANNEL].groups[facts.groupId] = {
               ...projected.channels[policy.CHANNEL].groups[facts.groupId],
               activationId: message.id, activatedAt: Date.parse(message.time),
@@ -93,6 +94,27 @@ export function createOwnerEnrollment({ policy, current, mutate, sharedEnroll, a
         writeOptions: { ...options.writeOptions, assertCurrent() { assertAuthority(); options.writeOptions?.assertCurrent?.(); } },
       }),
     });
-    return result.changed === true;
+    if (result.changed !== true) return false;
+    // A managed write persists before the host publishes its runtime snapshot.
+    // Never authorize from the saved draft or discard the first tag in that gap.
+    const deadline = Date.now() + activationTimeoutMs;
+    for (;;) {
+      signal?.throwIfAborted();
+      assertAuthority();
+      const account = current().channels?.[policy.CHANNEL];
+      if (!policy.validConfig(account) || account.enrollmentOwnerId !== policy.SENDER || account.groupPolicy === 'disabled') {
+        throw new Error('Teams group enrollment authorization changed before activation');
+      }
+      const entry = account.groups?.[facts.groupId];
+      if (entry) {
+        if (entry.enabled === false || entry.activationId !== message.id || entry.activatedAt !== Date.parse(message.time)) {
+          throw new Error('Teams group enrollment activation was revoked or superseded');
+        }
+        return true;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error('Teams group enrollment persisted but runtime activation timed out; retain the saved fence for recovery');
+      await delay(Math.min(25, remaining), undefined, { signal });
+    }
   };
 }
