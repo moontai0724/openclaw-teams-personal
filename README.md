@@ -1,121 +1,99 @@
-# Teams Personal realtime transport and OpenClaw channel
+# Teams Personal channel for OpenClaw
 
-Independent Trouter transport, a receive-only validation CLI, and a channel adapter
-that replaces the installed polling receive loop through a small deployment bridge.
-The adapter owns its auth renewal, message/file client and emoji actions, while
-retaining the approved account, encrypted credential data and native ingress.
-Chat scope is an exact per-room allowlist. A verified enrollment
-owner can authorize a new room by an original native bot mention; the feature is off until
-the host config explicitly binds that identity.
-See [live acceptance/deployment](docs/LIVE-TEST.md).
+A Teams Personal channel with realtime messaging, account authentication,
+original-file transfer and current-chat tools. It connects to Teams over Trouter
+WebSocket and uses the OpenClaw SDK for routing, media storage and durable ingress.
 
-## Receive-only CLI boundary
+## Requirements
 
-- One explicitly selected group, text messages only.
-- Trouter connection, authentication, notification registration and recovery.
-- Preserve message identity, author, time, native mentions and reply metadata.
-- No model invocation, sending, marking read, presence publication or group management.
-- No new login or credential store. An explicit external auth-provider module supplies
-  the existing bot account's short-lived token in memory.
+- Node.js 24 or newer, with native ESM and erasable TypeScript support.
+- An OpenClaw host with the channel SDK, media services and shared group-enrollment core.
+- An existing esbuild executable for deployment bundling.
 
-## Runtime
+The source uses built-in Node APIs and requires no npm dependency installation.
+See [development](CONTRIBUTING.md) for checks and host integration tests, and
+[deployment and acceptance](docs/LIVE-TEST.md) for host setup.
 
-Node.js 24 or newer. No dependency installation or build is required; Node executes
-erasable TypeScript directly. This stage has runtime tests and syntax checks, not a
-TypeScript compiler gate. The compiler/tooling choice is deferred to plugin packaging.
+## Channel capabilities
 
-```sh
-node --version
-npm test
-npm run check
-```
+| Area | Behavior |
+| --- | --- |
+| Account | Device-code sign-in, serialized token refresh and encrypted credential storage |
+| Receive | Trouter events with bounded history recovery on connection or a reported gap |
+| Context | Separate DM/group sessions, bounded recent history, native mentions and quoted replies |
+| Messages | Send/reply, same-chat reads, explicit bot-owned edit/delete |
+| Reactions | Emoji discovery, addition and selected-emoji removal with bot-own readback |
+| Files | Original upload/download, including images, through host media storage |
+| Typing | Native controls refreshed every four seconds during addressed turns |
+| Presence | Available endpoint while connected, with a 60-second activity refresh |
+| Group enrollment | A verified owner's fresh native bot mention can admit one exact new room |
 
-For a credential-free demo:
+Only authorized chats reach context and ingress. Group turns require a native
+mention, a verified reply to the bot or a command. Untagged messages supply recent
+context; edits update that context without starting another turn. Each chat has
+its own route, session and reply destination. Group history is bounded to 100
+cached messages and 50 entries / 20,000 text characters per prompted window.
 
-```sh
-node src/cli.ts replay --config test/fixtures/scope.json \
-  --input test/fixtures/events.jsonl --journal local/synthetic.jsonl
-```
+Room policy uses an exact allowlist. Enrollment requires an explicitly verified
+channel-local owner identity; it is disabled until configured. A qualifying tag
+admits that room for all members with mention/reply gating. Disabled entries stay
+disabled, and ordinary chat access grants no administrative authority.
 
-## Channel behavior
+## Account setup
 
-- WebSocket events are primary; history reads happen at connection / gap recovery,
-  not every 20 seconds. No new public HTTP endpoint is opened.
-- Only authorized groups/DMs reach context or native ingress. Native mentions,
-  verified replies to the bot and commands retain the existing group trigger rule.
-- Untagged group text becomes bounded recent context. Quoted text is attached via
-  the SDK's supplemental quote facts. Edits update context without a new reply.
-- Existing native turn queue/deduplication and outbound destination checks remain.
-- Multiple explicitly approved groups have separate context, sessions and reply
-  destinations. Adding a group preserves existing replay cursors and starts its
-  dispatch fence at activation; older text may supply context, not replayed turns.
-- Joining alone never enrolls a group. With the verified enrollment identity
-  configured, only that owner's fresh original native bot tag enrolls a new group.
-  Replies, commands, forwards, edits, old history and other senders do not enroll.
-  Each new room allows all members, retains mention/reply gating and grants no
-  global owner or administrative permissions. Disabled rooms remain disabled.
-- The shared `message` tool supports sending, same-chat reads, bot-owned message
-  edit/delete, `react` and `emoji-list`. The independent client implements these
-  requests directly; `remove: true` removes only the
-  bot's selected emoji. Every mutation is read back as the bot's own reaction.
-  Missing message IDs fall back only to the current Teams message in the same
-  chat. Account/destination guards remain in force; no new dependency is added.
-  An unverified outcome is reported without automatically resending the mutation.
-
-- Addressed DM/group turns send native typing controls while the model works,
-  refreshed every four seconds through the host SDK. Completion, silence, errors
-  and cancellation stop refresh; Teams clears the transient indicator on expiry.
-  Live policy and bot identity are rechecked before every control. Typing failures
-  do not block text replies. Typing does not change presence, scope or global config.
-
-- The channel publishes native Available presence while its authenticated message
-  transport is connected, refreshing its own endpoint every 60 seconds. Socket
-  loss, account stop and plugin replacement abort refresh and remove only this
-  connector's presence endpoint. A separate random ID keeps it independent of
-  the messaging endpoint and other clients. No forced account-wide availability,
-  status note, new permission, schedule or config field is introduced. Manual
-  availability and other clients may affect the combined status. Unclean process
-  exits depend on Teams expiry; offline presentation is not guaranteed immediate.
-  Presence errors are contained and do not stop text receipt/replies.
-
-Presence first loaded in production generation 4 (2026-11-17 09:35 Asia/Taipei);
-the current independent deployment is recorded in `docs/STATUS.md`.
-The normal 60-second refresh succeeded and self-readback is Available/Available;
-requester-observed green-dot visibility remains unverified. See the status record
-for deployed artifact provenance and the pending UI check.
-
-## Account and original files
-
-`src/account.mjs` implements device-code sign-in, serialized chat/Graph refresh,
-cache renewal and atomic encrypted writes. The existing encrypted store format,
-key derivation and location are retained for sign-in continuity; that compatibility
-name is data, not a dependency on another application. Run account operations in
-a private operator terminal. Never post device codes or token values into groups.
+Run account operations in a private operator terminal. Sign-in writes the encrypted
+credential store only after checking the approved account identity. Keep device
+codes, account IDs and tokens out of public output and Git.
 
 ```sh
 node src/account-cli.mjs status
 node src/account-cli.mjs login <approved-account-MRI>
 ```
 
-`teams_chat` is available only in the current trusted Teams conversation. It
-provides bounded recent-message reads/search, attachment listing/download and
-explicit mark-read. Search is not an account-wide index. Message edit/delete
-requires an explicit known bot-owned ID. No account/group administration is exposed.
+Token refresh and encrypted storage are implemented in `src/account.mjs`.
+The default store is `~/.teams-personal-mcp/tokens.enc` on Unix and
+`%APPDATA%/teams-personal-mcp/tokens.enc` on Windows. Its encryption key depends on
+the host name and OS user name; copying the file alone is not a portable login.
 
-Incoming attachments retain original bytes and enter the host media store only
-after admission. At most five files are staged per turn; remaining attachments can
-be explicitly downloaded with `teams_chat`. Outbound originals use the host's
-media access policy with optimization disabled and native File.1 uploads, including
-pictures. A caption and its file are sent in one message. The current limit is
-15 MiB per original file and 5 MiB for inline image downloads. No Office/PDF text
-extraction, conversion, OCR, spreadsheet evaluation or transcoding is performed
-by this channel; content understanding belongs to host tools. Automatic image
-handling by the host is separate from original-file transport.
+## Tools and original files
 
-The source has no MCP server, vendor source import or npm dependency. The host
-supplies its SDK/media storage and the shared owner-enrollment core. Build using
-its existing esbuild and reload only the selected channel. Roll back by deploying
-a reviewed independent source revision; `--restore` of a polling entry is retired.
+The host `message` tool supports send/read, explicit bot-owned edit/delete,
+`react` and `emoji-list`. Message mutations require the trusted conversation and
+account; unverified outcomes require readback before retrying.
 
-See [status](docs/STATUS.md) for observed verification; synthetic fixtures and local
-tests never establish successful Teams registration or actual message delivery.
+`teams_chat` is available in the current trusted Teams conversation. Its actions
+are `read`, `search`, `files`, `read-file` and `mark-read`. Search scans bounded
+chat history. Reading leaves the read horizon unchanged; marking read is explicit.
+Cross-chat search and account/group administration are outside this interface.
+
+Incoming attachments enter host media storage after chat admission. Up to five
+files are staged per turn; additional attachments can be downloaded explicitly
+with `teams_chat`. Outbound originals use host media access checks and native
+File.1 uploads, with a caption and file in the same message. Limits are 15 MiB per
+original file and 5 MiB for inline image downloads. Audio/video travel as files.
+The channel transfers bytes unchanged; document extraction, OCR and transcoding
+belong to host content tools.
+
+Typing stops refreshing on completion, silence, errors or cancellation, then
+expires in Teams. Presence uses a separate random endpoint and removes that
+endpoint on disconnect/stop. Manual availability and other clients can affect
+combined status; abrupt process loss relies on native expiry. Typing/presence
+errors are contained so messaging can continue.
+
+## Receive-only validation CLI
+
+The CLI tests transport for one explicitly selected group. It records text,
+author/time, native mentions and reply metadata without invoking a model, sending
+chat messages, marking read or publishing presence. It uses an auth-provider
+module, such as `src/account.mjs`, to obtain short-lived credentials in memory.
+
+For a credential-free synthetic replay:
+
+```sh
+node src/cli.ts replay --config test/fixtures/scope.json \
+  --input test/fixtures/events.jsonl --journal local/synthetic.jsonl
+```
+
+For a bounded live run, see [CLI acceptance](docs/LIVE-TEST.md#receive-only-cli).
+Protocol details are in [PROTOCOL.md](docs/PROTOCOL.md); observed results and open
+acceptance items are in [STATUS.md](docs/STATUS.md).
