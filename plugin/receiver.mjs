@@ -6,7 +6,7 @@ import { checkCredential } from '../src/auth.ts';
 import { normalize, eventResource } from '../src/messages.ts';
 import { trustedUrl, object } from '../src/protocol.ts';
 import { request, readJson } from '../src/http.ts';
-import { isGroupId } from './enrollment.mjs';
+import { isGroupId, isDmId } from './enrollment.mjs';
 import { PocError } from '../src/errors.ts';
 import { attachmentList } from '../src/client.mjs';
 
@@ -56,7 +56,10 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
   enroll, fetcher = fetch, makeSocket = url => new WebSocket(url) }) {
   const { CHAT, GROUP, BOT, SENDER, admitted, groupAdmitted } = policy;
   const groups = () => policy.GROUPS ?? [GROUP];
-  const chats = () => [CHAT, ...groups()];
+  const dms = () => policy.DM_CHATS ?? [CHAT];
+  const chats = () => [...dms(), ...groups()];
+  const dmSenderAllowed = (chat, sender) => sender === BOT ||
+    (policy.dmAllowFrom?.(chat) ?? (chat === CHAT ? [SENDER] : [])).includes(sender);
   const startedAt = Date.now();
   if (new Set(chats()).size !== chats().length) throw new PocError('Invalid realtime chat scope');
   const context = new ContextWindow();
@@ -71,19 +74,20 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
       chats: { [CHAT]: { baseline: previous.lastId, since: previous.since, repairedThrough: Number(previous.lastId) || previous.since },
         [GROUP]: { baseline: previous.group.lastId, since: previous.group.since, repairedThrough: Number(previous.group.lastId) || previous.group.since } } };
   }
-  if (state.version !== 1 || state.bot !== BOT || !/^[\da-f-]{36}$/.test(state.endpointId) || !state.chats?.[CHAT] || !state.chats?.[GROUP] || Object.keys(state.chats).some(chat => chat !== CHAT && !isGroupId(chat))) throw new PocError('Realtime migration scope mismatch');
-  // New groups start at activation; an enrolled group retains its triggering tag.
-  // Existing cursors and the transport endpoint are never reset when adding a group.
-  const activate = (group) => {
-    if (!state.chats[group]) {
-      const entry = policy.groupEntry?.(group);
+  if (state.version !== 1 || state.bot !== BOT || !/^[\da-f-]{36}$/.test(state.endpointId) || !state.chats?.[CHAT] || !state.chats?.[GROUP] || Object.keys(state.chats).some(chat => chat !== CHAT && !isGroupId(chat) && !isDmId(chat))) throw new PocError('Realtime migration scope mismatch');
+  // New chats start at activation; an enrolled group retains its triggering tag.
+  // Existing cursors and the transport endpoint are preserved when adding a chat.
+  const activate = (chat) => {
+    if (!state.chats[chat]) {
+      const direct = dms().includes(chat);
+      const entry = direct ? policy.dmEntry?.(chat) : policy.groupEntry?.(chat);
       const trigger = entry?.activationId;
-      const since = trigger ? entry.activatedAt : Date.now();
-      if (!Number.isFinite(since) || trigger && !/^[1-9]\d{0,23}$/.test(trigger)) throw new PocError('Invalid group activation fence');
-      state.chats[group] = { baseline: trigger ? String(BigInt(trigger) - 1n) : String(since), since, repairedThrough: since };
+      const since = (trigger || direct) ? entry?.activatedAt : Date.now();
+      if (!Number.isFinite(since) || trigger && !/^[1-9]\d{0,23}$/.test(trigger)) throw new PocError('Invalid chat activation fence');
+      state.chats[chat] = { baseline: trigger ? String(BigInt(trigger) - 1n) : String(since), since, repairedThrough: since };
     }
   };
-  for (const group of groups()) activate(group);
+  for (const chat of chats()) activate(chat);
   for (const chat of Object.keys(state.chats)) {
     const item = state.chats[chat];
     if (!/^\d+$/.test(item.baseline) || !Number.isFinite(item.since) || !Number.isFinite(item.repairedThrough)) throw new PocError('Invalid realtime migration state');
@@ -96,7 +100,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
   const auth = async () => { assertAuthority(); return checkCredential(await authProvider(), BOT); };
   const accept = async (message, source) => {
     if (!message || !chats().includes(message.conversationId)) return;
-    if (message.conversationId === CHAT && ![BOT, SENDER].includes(message.fromId)) return;
+    if (dms().includes(message.conversationId) && !dmSenderAllowed(message.conversationId, message.fromId)) return;
     context.record(message);
     if (source === 'push') {
       const kind = message.deleted ? 'delete' : message.edited ? 'update' : 'message';
@@ -107,7 +111,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
     if (message.deleted || message.edited || BigInt(message.id) <= BigInt(item.baseline)) return;
     const original = message.replyTo?.messageId ? context.find(message.conversationId, message.replyTo.messageId) : undefined;
     message.replyToBot = Boolean(original?.fromId === BOT && original.isMine);
-    const allowed = message.conversationId === CHAT ? admitted(message, item.since) : groupAdmitted(message, item.since);
+    const allowed = dms().includes(message.conversationId) ? admitted(message, item.since) : groupAdmitted(message, item.since);
     if (!allowed) return;
     const history = groups().includes(message.conversationId) ? context.history(message.conversationId, message) : undefined;
     const quote = message.replyTo ? {

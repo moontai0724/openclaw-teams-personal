@@ -44,6 +44,14 @@ export default createTeamsChannel({ policy, sharedEnroll,
     Object.assign(schema.properties, {
       groupPolicy: { type: 'string', enum: ['allowlist', 'disabled'] },
       enrollmentOwnerId: { type: 'string' },
+      dms: { type: 'object', propertyNames: { pattern: '^19:uni01_[a-zA-Z0-9_-]+@thread\\.v2$' },
+        additionalProperties: { type: 'object', additionalProperties: false, required: ['allowFrom', 'activatedAt'], properties: {
+          enabled: { type: 'boolean' },
+          allowFrom: { type: 'array', minItems: 1, maxItems: 1,
+            items: { type: 'string', pattern: '^8:(?:orgid:|live:)[a-zA-Z0-9.:-]+$' } },
+          activatedAt: { type: 'integer', minimum: 1 },
+        } },
+      },
       groups: { type: 'object', propertyNames: { pattern: '^19:[a-zA-Z0-9-]+@thread\\.v2$' },
         additionalProperties: { type: 'object', additionalProperties: false, properties: {
           enabled: { type: 'boolean' }, requireMention: { type: 'boolean', const: true },

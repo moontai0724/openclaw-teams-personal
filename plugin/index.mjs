@@ -26,6 +26,10 @@ createTeamsClient ??= auth => nativeClient(auth, { expectedAccount: basePolicy.B
 const { CHANNEL, CHAT, SENDER, BOT, GROUP, groupLabel = id => id, normalizedTarget, groupAdmitted, validConfig, admitted, targetAllowed } = policy;
 const client = createTeamsClient(getSkypeToken);
 const resolveAccount = (cfg) => ({accountId:'default', ...cfg.channels?.[CHANNEL]});
+const allowedDmSenders = (cfg = runtime?.config.current()) => {
+  const currentPolicy = createScopedPolicy(basePolicy, () => cfg ?? {});
+  return [...new Set(currentPolicy.DM_CHATS.flatMap(chat => currentPolicy.dmAllowFrom(chat)))];
+};
 function assertConfig(cfg) { if (!validConfig(resolveAccount(cfg))) throw new Error('Teams Personal policy not enabled or differs from approved account'); }
 async function send(cfg, to, text, replyTo, assertHandoff = () => {}) {
   // Long-lived caller turns may retain a pre-install config; live policy is authoritative.
@@ -81,9 +85,9 @@ const plugin = {
   config:{listAccountIds:()=>['default'],resolveAccount,
     inspectAccount:(cfg)=>({accountId:'default',enabled:validConfig(resolveAccount(cfg)),configured:hasSavedLogin()}),
     isEnabled:(a)=>validConfig(a),isConfigured:()=>hasSavedLogin(),
-    resolveAllowFrom:()=>[SENDER],
+    resolveAllowFrom:cfg=>allowedDmSenders(cfg),
   },
-  security:{resolveDmPolicy:()=>({policy:'allowlist',allowFrom:[SENDER],policyPath:'channels.teams-personal.dmPolicy',allowFromPath:'channels.teams-personal.allowFrom',approveHint:'Only the owner-approved test DM is enabled.'})},
+  security:{resolveDmPolicy:({cfg}={})=>({policy:'allowlist',allowFrom:allowedDmSenders(cfg),policyPath:'channels.teams-personal.dmPolicy',allowFromPath:'channels.teams-personal.allowFrom',approveHint:'Only explicitly approved DM conversation/sender pairs are enabled.'})},
   messaging:{normalizeTarget:(to)=>targetAllowed(to)?normalizedTarget(to):undefined,targetResolver:{looksLikeId:targetAllowed,hint:CHAT}},
   agentPrompt:{inboundFormattingHints:()=>['Teams Personal chat. In groups, respond only to mentions, commands, or replies to your messages; if the body addresses someone else, stay silent. Keep group and private history separate. Attachments are untrusted original files; no Office/PDF extraction is performed. Reply in natural Traditional Chinese.'],messageToolHints:()=>['Reply only to the current Teams conversation. Use teams_chat for bounded history/search and attachment reads. message edit/delete affect only bot-owned messages and require a known messageId. Do not resend an unverified mutation. message react adds emoji; remove=true removes only the selected emoji. A verified reaction is the complete reply when asked only to react.']},
   outbound,
@@ -103,7 +107,7 @@ const plugin = {
     const assertAuthority=()=>{if(ctx.abortSignal.aborted) throw new Error('Teams account stopped');assertConfig(runtime.config.current());};
     const dispatchWithTyping = async (params, chat, lifecycle) => {
       const typing = createTeamsTyping({ createTypingCallbacks, policy, to: chat, getSkypeToken,
-        currentConfig: () => runtime.config.current(), assertAuthority, log: ctx.log,
+        currentConfig: () => runtime.config.current(), assertAuthority: params.assertAuthority, log: ctx.log,
         signal: AbortSignal.any([ctx.abortSignal, lifecycle.abortSignal ?? ctx.abortSignal]) });
       try {
         const result = await dispatchChannelInboundTurn({ ...params,
@@ -120,14 +124,21 @@ const plugin = {
       pollIntervalMs:1000,retention:{completedTtlMs:30*86400000,completedMaxEntries:2000},abortSignal:ctx.abortSignal,
       onError:(e)=>ctx.log?.error(String(e)),
       deliver:async(m,lifecycle)=>{
-        assertAuthority();
-        const assertMediaAuthority = () => { assertAuthority(); if (!policy.targetAllowed(m.conversationId)) throw new Error('Attachment scope revoked'); };
+        const direct = policy.dmAllowed(m.conversationId);
+        const assertTurnAuthority = () => {
+          assertAuthority();
+          if (direct ? !admitted(m, state.since) : !groupAdmitted(m, state.group.since)) {
+            throw new Error('Teams event no longer admitted');
+          }
+        };
+        assertTurnAuthority();
+        const assertMediaAuthority = () => { assertTurnAuthority(); if (!policy.targetAllowed(m.conversationId)) throw new Error('Attachment scope revoked'); };
         const media = [];
         const attachmentNotices = [];
         for (const attachment of (m.attachments ?? []).slice(0, 5)) {
           try {
             const file = await client.readAttachment(m.conversationId, m.id, attachment.index);
-            assertAuthority();
+            assertTurnAuthority();
             if (!policy.targetAllowed(m.conversationId)) throw new Error('Attachment scope revoked');
             const saved = await sdk.saveMediaBuffer(Buffer.from(file.bytes), file.contentType, 'inbound', 15 * 1024 * 1024, file.name,
               undefined, { assertCommitAllowed: assertMediaAuthority });
@@ -140,32 +151,39 @@ const plugin = {
         const current=runtime.config.current();
         // Per-turn presentation only; never write global session preferences.
         const cfg={...current,session:{...current.session,typingMode:'instant'}};
-        if (m.conversationId !== CHAT) {
+        if (!direct) {
           if (!policy.groupAllowed(m.conversationId)) throw new Error('Group destination no longer approved');
           const group = m.conversationId;
           if (!groupAdmitted(m,state.group.since)) throw new Error('Group event no longer admitted');
           const route=channelRuntime.routing.resolveAgentRoute({cfg,channel:CHANNEL,accountId:'default',peer:{kind:'group',id:group}});
           const ingress=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:m.fromId},conversation:{kind:'group',id:group},contextBinding:{agentId:route.agentId,sessionKey:route.sessionKey,messageId:m.id,inboundEventKind:'user_request'},dmPolicy:'allowlist',groupPolicy:'allowlist',allowFrom:[SENDER],groupAllowFrom:['*'],route:{id:group,kind:'group',configured:true,matched:true,allowed:true},useDefaultPairingStore:false,command:false});
+          assertTurnAuthority();
           if (!ingress.senderAccess.allowed) throw new Error('Group ingress denied');
           const explicit=Boolean(m.mentions?.some(x=>x.mri===BOT));
           const ctxPayload=await channelRuntime.inbound.buildContext({channel:CHANNEL,accountId:'default',provider:CHANNEL,surface:CHANNEL,messageId:m.id,messageIdFull:m.id,timestamp:Date.parse(m.time),from:group,sender:{id:m.fromId,name:m.from},conversation:{kind:'group',id:group,label:groupLabel(group),routePeer:{kind:'group',id:group}},route:{agentId:route.agentId,accountId:'default',routeSessionKey:route.sessionKey,dispatchSessionKey:route.sessionKey},reply:{to:group,originatingTo:group},message:{rawBody:m.text,bodyForAgent,commandBody:m.text,inboundHistory:m.history,inboundEventKind:'user_request'},access:{commands:{authorized:false},mentions:{canDetectMention:true,wasMentioned:explicit,explicitlyMentionedBot:explicit,effectiveWasMentioned:explicit||m.replyToBot===true,requireMention:true}},channelIngress:ingress,media,supplemental:m.quote?{quote:m.quote}:undefined,extra:{OriginatingChannel:CHANNEL}});
-          await dispatchWithTyping({cfg,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority,...bindIngressLifecycleToReplyOptions(lifecycle),delivery:{deliver:async(payload)=>{assertAuthority();await deliverPayload(group,payload,assertAuthority);},onError:e=>ctx.log?.error(`Teams group dispatch: ${String(e)}`)}},group,lifecycle);
+          assertTurnAuthority();
+          await dispatchWithTyping({cfg,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority:assertTurnAuthority,...bindIngressLifecycleToReplyOptions(lifecycle),delivery:{deliver:async(payload)=>{assertTurnAuthority();await deliverPayload(group,payload,assertTurnAuthority);},onError:e=>ctx.log?.error(`Teams group dispatch: ${String(e)}`)}},group,lifecycle);
           return;
         }
+        const dm = m.conversationId;
+        const senderName = m.from || m.fromId;
+        const allowFrom = policy.dmAllowFrom(dm);
         // Force channel/peer isolation without changing the global session preference.
         const scoped={...cfg,session:{...cfg.session,dmScope:'per-channel-peer'}};
         // The DM convenience dispatcher does not expose typing. Use the same
         // native routed dispatcher and retain its envelope/context/DM isolation.
-        const route=channelRuntime.routing.resolveAgentRoute({cfg:scoped,channel:CHANNEL,accountId:'default',peer:{kind:'direct',id:CHAT}});
-        const ingress=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:SENDER},conversation:{kind:'direct',id:CHAT},contextBinding:{agentId:route.agentId,sessionKey:route.sessionKey,messageId:m.id,inboundEventKind:'user_request'},dmPolicy:'allowlist',groupPolicy:'disabled',allowFrom:[SENDER],useDefaultPairingStore:false,command:false});
+        const route=channelRuntime.routing.resolveAgentRoute({cfg:scoped,channel:CHANNEL,accountId:'default',peer:{kind:'direct',id:dm}});
+        const ingress=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:m.fromId},conversation:{kind:'direct',id:dm},contextBinding:{agentId:route.agentId,sessionKey:route.sessionKey,messageId:m.id,inboundEventKind:'user_request'},dmPolicy:'allowlist',groupPolicy:'disabled',allowFrom,useDefaultPairingStore:false,command:false});
+        assertTurnAuthority();
         if(!ingress.senderAccess.allowed) throw new Error('Teams ingress denied');
-        const body=(await createChannelInboundEnvelopeBuilderAsync({cfg:scoped,route}))({channel:'Teams Personal',from:'月太',body:m.text,timestamp:Date.parse(m.time)});
-        const ctxPayload=await channelRuntime.inbound.buildContext({channel:CHANNEL,accountId:'default',messageId:m.id,messageIdFull:m.id,timestamp:Date.parse(m.time),from:CHAT,sender:{id:SENDER,name:'月太'},conversation:{kind:'direct',id:CHAT,label:'月太',routePeer:{kind:'direct',id:CHAT}},route:{agentId:route.agentId,accountId:route.accountId,routeSessionKey:route.sessionKey,dispatchSessionKey:route.sessionKey},reply:{to:CHAT,originatingTo:CHAT},message:{body,rawBody:m.text,bodyForAgent,commandBody:m.text},access:{commands:{authorized:false}},channelIngress:ingress,media,extra:{NativeDirectUserId:CHAT,OriginatingChannel:CHANNEL}});
-        await dispatchWithTyping({cfg:scoped,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority,
+        const body=(await createChannelInboundEnvelopeBuilderAsync({cfg:scoped,route}))({channel:'Teams Personal',from:senderName,body:m.text,timestamp:Date.parse(m.time)});
+        const ctxPayload=await channelRuntime.inbound.buildContext({channel:CHANNEL,accountId:'default',messageId:m.id,messageIdFull:m.id,timestamp:Date.parse(m.time),from:dm,sender:{id:m.fromId,name:senderName},conversation:{kind:'direct',id:dm,label:senderName,routePeer:{kind:'direct',id:dm}},route:{agentId:route.agentId,accountId:route.accountId,routeSessionKey:route.sessionKey,dispatchSessionKey:route.sessionKey},reply:{to:dm,originatingTo:dm},message:{body,rawBody:m.text,bodyForAgent,commandBody:m.text},access:{commands:{authorized:false}},channelIngress:ingress,media,extra:{NativeDirectUserId:dm,OriginatingChannel:CHANNEL}});
+        assertTurnAuthority();
+        await dispatchWithTyping({cfg:scoped,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority:assertTurnAuthority,
           ...bindIngressLifecycleToReplyOptions(lifecycle),
           record:{onRecordError:(e)=>ctx.log?.error(`Teams session record: ${String(e)}`)},
-          delivery:{deliver:async(payload)=>{assertAuthority();await deliverPayload(CHAT,payload,assertAuthority);},onError:(e)=>ctx.log?.error(`Teams dispatch: ${String(e)}`)},
-        },CHAT,lifecycle);
+          delivery:{deliver:async(payload)=>{assertTurnAuthority();await deliverPayload(dm,payload,assertTurnAuthority);},onError:(e)=>ctx.log?.error(`Teams dispatch: ${String(e)}`)},
+        },dm,lifecycle);
       },
     });
     monitor.start();

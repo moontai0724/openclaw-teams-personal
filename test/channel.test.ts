@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTeamsChannel } from '../plugin/index.mjs';
 
-for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19:uni01_synthetic@thread.v2']) test(`channel routes replies and typing only into the approved conversation: ${group}`, async () => {
+for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19:uni01_synthetic@thread.v2', '19:uni01_member@thread.v2']) test(`channel routes replies and typing only into the approved conversation: ${group}`, async () => {
   const root = await mkdtemp(join(tmpdir(), 'teams-channel-test-'));
   const policy = {
     CHANNEL: 'teams-personal', CHAT: '19:uni01_synthetic@thread.v2', GROUP: '19:synthetic@thread.v2',
@@ -18,8 +18,12 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
     groupAdmitted: (message: { conversationId: string }) => ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2'].includes(message.conversationId),
     targetAllowed: (id: string) => ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19:uni01_synthetic@thread.v2'].includes(id),
   };
-  const config = { channels: { 'teams-personal': { enabled: true } } };
-  const direct = group === policy.CHAT;
+  const member = '8:orgid:synthetic-member';
+  const newDm = '19:uni01_member@thread.v2';
+  const config = { channels: { 'teams-personal': { enabled: true,
+    dms: { [newDm]: { allowFrom: [member], activatedAt: 1, enabled: true } } } } };
+  const direct = group.startsWith('19:uni01_');
+  const sender = group === newDm ? member : policy.SENDER;
   const history = [{ sender: 'Synthetic user', body: 'untagged context', messageId: '1794800000000' }];
   const quote = { id: '1794800000000', body: 'quoted context', senderAllowed: true, isQuote: true };
   let built: any;
@@ -47,7 +51,7 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
       status({ connected: true });
       status({ lastInboundAt: Date.now() });
       await admit({ conversationId: group, id: '1794800000001', text: 'current request',
-        time: new Date().toISOString(), fromId: policy.SENDER, from: 'Synthetic user',
+        time: new Date().toISOString(), fromId: sender, from: 'Synthetic user', isMine: false,
         mentions: [{ mri: policy.BOT }], history, quote, attachments: [{ index: 0, kind: 'file', name: 'original.bin' }] });
       status({ connected: false });
     },
@@ -73,6 +77,7 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
         assert.equal(ctxPayload, built);
         if (dispatchMode === 'error') throw new Error('synthetic dispatch failure');
         if (dispatchMode === 'deferred') return { dispatchResult: { deferredToActiveRun: true } };
+        if (dispatchMode === 'revoke') config.channels['teams-personal'].dms[newDm].enabled = false;
         await delivery.deliver({ text: 'synthetic reply' }); dispatched = true;
       },
       dispatchInboundDirectDm: async () => { throw new Error('Group must not route into DM dispatcher'); },
@@ -91,7 +96,7 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
           ingress: { resolveStable: async (args: any) => {
             assert.equal(args.conversation.id, group);
             assert.equal(args.groupPolicy, direct ? 'disabled' : 'allowlist');
-            if (direct) assert.deepEqual(args.allowFrom, [policy.SENDER]);
+            if (direct) { assert.deepEqual(args.allowFrom, [sender]); assert.equal(args.subject.stableId, sender); }
             else { assert.equal(args.route.id, group); assert.deepEqual(args.groupAllowFrom, ['*']); }
             return { senderAccess: { allowed: true } };
           } },
@@ -99,6 +104,8 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
         },
       },
     });
+    assert.deepEqual(entry.plugin.config.resolveAllowFrom(config), [policy.SENDER, member]);
+    assert.deepEqual(entry.plugin.security.resolveDmPolicy({ cfg: config }).allowFrom, [policy.SENDER, member]);
     assert.equal(dispatched, true);
     assert.deepEqual(presenceStates, [true, false, 'stopped']);
     assert.equal(typingCleaned, true);
@@ -112,7 +119,7 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
     } else {
       assert.equal(built.conversation.kind, 'direct');
       assert.equal(built.message.body, 'synthetic envelope: current request');
-      assert.equal(built.extra.NativeDirectUserId, policy.CHAT);
+      assert.equal(built.extra.NativeDirectUserId, group);
       assert.equal(built.message.inboundHistory, undefined);
     }
     assert.equal(built.message.rawBody, 'current request');
@@ -121,10 +128,10 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
     assert.equal(built.access.commands.authorized, false);
     assert.equal(built.route.dispatchSessionKey, `session:${group}`);
     assert.equal(built.conversation.id, group);
-    assert.equal(built.conversation.label, direct ? '月太' : `label:${group}`);
+    assert.equal(built.conversation.label, direct ? 'Synthetic user' : `label:${group}`);
     assert.equal(built.reply.to, group);
     await assert.rejects(entry.plugin.outbound.sendText({ cfg: config, to: '19:unapproved@thread.v2', text: 'must not send' }), /destination not approved/);
-    const next = { conversationId: group, id: '1794800000003', text: 'next request', time: new Date().toISOString(), fromId: policy.SENDER };
+    const next = { conversationId: group, id: '1794800000003', text: 'next request', time: new Date().toISOString(), fromId: sender, isMine: false };
     typingCleaned = false;
     dispatchMode = 'error';
     await assert.rejects(monitor.admit(next), /synthetic dispatch failure/);
@@ -135,7 +142,18 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
     assert.equal(typingCleaned, false); // Deferred run still owns its callbacks.
     if (!direct) {
       (config.channels['teams-personal'] as any).groups = { [group]: { enabled: false } };
-      await assert.rejects(monitor.admit({ conversationId: group, id: '1794800000003' }), /Group destination no longer approved/);
+      await assert.rejects(monitor.admit({ conversationId: group, id: '1794800000003' }), /no longer admitted/);
+    }
+    if (direct) {
+      await assert.rejects(monitor.admit({ ...next, fromId: '8:orgid:unapproved' }), /no longer admitted/);
+      assert.equal(built.sender.id, sender);
+    }
+    if (group === newDm) {
+      dispatchMode = 'revoke';
+      await assert.rejects(monitor.admit(next), /no longer admitted/);
+      assert.equal(toolFactory({ messageChannel: 'teams-personal', nativeChannelId: group }), null);
+      await assert.rejects(entry.plugin.outbound.sendText({ cfg: config, to: group, text: 'revoked' }), /destination not approved/);
+      await assert.rejects(monitor.admit(next), /no longer admitted/);
     }
     abort.abort();
     assert.equal(typingCleaned, true);

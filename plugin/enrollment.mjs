@@ -1,5 +1,6 @@
 // Host-supplied shared enrollment core; this adapter never grants global ownership.
 export const isGroupId = id => typeof id === 'string' && /^19:[a-zA-Z0-9-]+@thread\.v2$/.test(id);
+export const isDmId = id => typeof id === 'string' && /^19:uni01_[a-zA-Z0-9_-]+@thread\.v2$/.test(id);
 const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj ?? {}, key);
 
 export function createScopedPolicy(base, current) {
@@ -10,11 +11,36 @@ export function createScopedPolicy(base, current) {
     return value.groups ?? Object.fromEntries((base.GROUPS ?? [base.GROUP]).map(id => [id, { requireMention: true, allowFrom: ['*'] }]));
   };
   const groupAllowed = id => isGroupId(id) && own(groups(), id) && groups()[id]?.enabled !== false;
+  const dmEntry = id => {
+    const value = account();
+    if (!base.validConfig(value)) return undefined;
+    if (id === base.CHAT) return { allowFrom: [base.SENDER] };
+    if (!isDmId(id) || !own(value.dms, id)) return undefined;
+    const entry = value.dms[id];
+    if (!entry || (entry.enabled !== undefined && entry.enabled !== true) || !Array.isArray(entry.allowFrom) || entry.allowFrom.length !== 1 ||
+      !/^8:(?:orgid:|live:)[a-zA-Z0-9.:-]+$/.test(entry.allowFrom[0]) || entry.allowFrom[0] === base.BOT ||
+      !Number.isSafeInteger(entry.activatedAt) || entry.activatedAt < 1) return undefined;
+    return entry;
+  };
+  const dmAllowed = id => Boolean(dmEntry(id));
+  const dmAllowFrom = id => [...(dmEntry(id)?.allowFrom ?? [])];
   return { ...base,
+    get DM_CHATS() { return [base.CHAT, ...Object.keys(account()?.dms ?? {}).filter(id => id !== base.CHAT)].filter(dmAllowed); },
+    dmAllowed,
+    dmAllowFrom,
+    dmEntry,
+    admitted(message, since) {
+      const chat = message?.conversationId;
+      if (!dmAllowed(chat) || !dmAllowFrom(chat).includes(message.fromId)) return false;
+      if (chat === base.CHAT) return base.admitted(message, since);
+      return message.isMine === false && !message.edited && !message.deleted && /^\d+$/.test(message.id) &&
+        Date.parse(message.time) >= Math.max(since, dmEntry(chat).activatedAt) &&
+        typeof message.text === 'string' && message.text.trim().length > 0;
+    },
     get GROUPS() { return Object.keys(groups()).filter(groupAllowed); },
     groupAllowed,
     groupEntry: id => groups()[id],
-    targetAllowed: to => base.normalizedTarget(to) === base.CHAT || groupAllowed(base.normalizedTarget(to)),
+    targetAllowed: to => dmAllowed(base.normalizedTarget(to)) || groupAllowed(base.normalizedTarget(to)),
     groupAdmitted(message, since) {
       if (!groupAllowed(message?.conversationId)) return false;
       const members = groups()[message.conversationId]?.allowFrom ?? ['*'];

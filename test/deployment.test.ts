@@ -28,6 +28,12 @@ test('deployment declares the chat tool without discarding other manifest contra
       assert.deepEqual(manifest.contracts.tools, ['existing_tool', 'teams_chat']);
       assert.deepEqual(manifest.contracts.services, ['existing_service']);
       assert.deepEqual(manifest.channelConfigs['teams-personal'].schema.properties.enabled, { type: 'boolean' });
+      const dms = manifest.channelConfigs['teams-personal'].schema.properties.dms;
+      assert.deepEqual(dms.additionalProperties.required, ['allowFrom', 'activatedAt']);
+      assert.equal(dms.additionalProperties.properties.allowFrom.maxItems, 1);
+      assert.equal(new RegExp(dms.propertyNames.pattern).test('19:uni01_synthetic@thread.v2'), true);
+      assert.equal(new RegExp(dms.propertyNames.pattern).test('19:synthetic-group@thread.v2'), false);
+      assert.equal(new RegExp(dms.additionalProperties.properties.allowFrom.items.pattern).test('*'), false);
       assert.match(await readFile(join(plugin, 'index.mjs'), 'utf8'), /createTeamsChannel/);
     }
   } finally { await rm(root, { recursive: true, force: true }); }

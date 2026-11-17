@@ -39,6 +39,19 @@ channel-local owner identity; it is disabled until configured. A qualifying tag
 admits that room for all members with mention/reply gating. Disabled entries stay
 disabled, and ordinary chat access grants no administrative authority.
 
+## Private-chat allowlist
+
+The host policy supplies the primary DM/sender pair. Additional one-to-one chats
+are explicit entries in `channels.teams-personal.dms`, keyed by their exact
+`19:uni01_…@thread.v2` conversation ID. Each entry has one `allowFrom` sender MRI,
+an `activatedAt` Unix-millisecond timestamp, and optional `enabled` boolean.
+
+Both conversation and sender must match. Each DM has isolated routing, session
+history and reply destination. Activation fences prevent earlier messages from
+opening turns. Revocation is checked during receipt, queued dispatch, typing,
+media handling and reply delivery. DM permission grants neither global ownership
+nor owner-tag group enrollment. See [configuration and acceptance](docs/LIVE-TEST.md#private-chat-allowlist).
+
 ## Account setup
 
 Run account operations in a private operator terminal. Sign-in writes the encrypted

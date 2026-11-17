@@ -51,6 +51,40 @@ Account-wide socket events are filtered before context or model dispatch. Unknow
 rooms qualify only through the verified native-tag enrollment rule; no discovery
 history is fetched for unapproved rooms. Joining a room alone does not admit it.
 
+## Private-chat allowlist
+
+Additional private conversations use `channels.teams-personal.dms`. Verify the
+exact native conversation ID and the peer's sender MRI before admission. Each
+entry requires exactly one sender and an approval-time `activatedAt` timestamp;
+`enabled: false` disables that entry. The primary DM/sender continues to come
+from the host policy and its existing account configuration.
+
+Synthetic configuration example:
+
+```json
+{
+  "dms": {
+    "19:uni01_synthetic-member@thread.v2": {
+      "allowFrom": ["8:live:.cid.synthetic-member"],
+      "activatedAt": 1794800000000
+    }
+  }
+}
+```
+
+Set `activatedAt` to the actual approval time, not the example value. The receiver
+starts that DM's dispatch fence there, preserving other chats' cursors and endpoint
+identity. History from before approval cannot open turns. A disabled or removed
+entry leaves its checkpoint intact without authorizing receipt, history or sending.
+
+After an authorized deployment/admission, use a fresh real message from that peer
+to verify one direct session and a correctly routed reply. Verify a second DM
+cannot access the first DM's session/history or quoted content. Wrong sender/chat
+pairs, unlisted DMs and pre-activation requests must be rejected. Revoke an entry
+and verify queued replies, media and typing fail closed. Existing DM/group access
+and global owner/enrollment identities must remain unchanged. Granting DM access
+and sending a proactive notification are separate authorized operations.
+
 ## Post-deployment acceptance
 
 Verify the selected entry, source digest, runtime generation, accepted tool

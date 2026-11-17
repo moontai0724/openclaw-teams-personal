@@ -4,6 +4,22 @@ Evidence cutoff: 2026-11-17, 10:40 Asia/Taipei. These are observed checkpoints,
 not a continuously refreshed health report. See [LIVE-TEST.md](LIVE-TEST.md) for
 procedures and [README.md](../README.md) for current capabilities.
 
+## Additional DM allowlists: source ready, not deployed
+
+The source supports exact additional conversation/sender pairs in `dms`, with
+per-chat routing/session isolation, activation fences and live revocation checks.
+The deployment manifest includes the optional map and rejects wildcard peers.
+All 72 host-enabled offline tests and syntax checks pass. Tests cover wrong-pair
+rejection, pre-activation history/push filtering,
+checkpoint preservation, private quote isolation, queued-reply revocation and
+unchanged global owner/group-enrollment authority.
+
+This source update has not been deployed or activated. No new real DM entry or
+notification was created. Native multi-DM acceptance requires a separately
+approved deployment, admission and fresh real peer message; see
+[LIVE-TEST.md](LIVE-TEST.md#private-chat-allowlist). The checkpoint below describes
+the loaded implementation, not this source update.
+
 ## Deployed implementation
 
 | Item | Verified result |
