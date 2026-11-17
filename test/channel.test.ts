@@ -78,6 +78,10 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
       dispatchInboundDirectDm: async () => { throw new Error('Group must not route into DM dispatcher'); },
     },
   });
+  let toolFactory: any;
+  entry.registerFull({ runtime: { config: { current: () => config } }, registerTool: (factory: any) => { toolFactory = factory; } });
+  assert.equal(toolFactory({ messageChannel: 'teams-personal', nativeChannelId: group }).name, 'teams_chat');
+  assert.equal(toolFactory({ messageChannel: 'telegram', nativeChannelId: group }), null);
   entry.setRuntime({ config: { current: () => config }, state: { resolveStateDir: () => root } });
   try {
     await entry.plugin.gateway.startAccount({ cfg: config, abortSignal: abort.signal, setStatus() {},

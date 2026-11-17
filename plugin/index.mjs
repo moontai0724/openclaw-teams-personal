@@ -187,5 +187,10 @@ const plugin = {
     }finally{await presence.stop();await monitor.stop();ctx.setStatus({accountId:'default',running:false,connected:false});}
   }},
 };
-return defineChannelPluginEntry({id:CHANNEL,name:'Teams Personal',description:'Approved Teams Free DM and group connector',plugin,setRuntime:r=>{runtime=r;},registerFull:api=>{ api.registerTool(context=>createChatTool(context,{policy,currentConfig:()=>api.runtime.config.current(),getSkypeToken,getGraphToken,sdk}),{name:'teams_chat',workspaceAccess:false}); }});
+return defineChannelPluginEntry({id:CHANNEL,name:'Teams Personal',description:'Approved Teams Free DM and group connector',plugin,setRuntime:r=>{runtime=r;},registerFull:api=>{
+  // Tool discovery can run without starting the channel or setting its runtime.
+  const currentConfig = () => api.runtime.config.current();
+  const toolPolicy = createScopedPolicy(basePolicy, currentConfig);
+  api.registerTool(context=>createChatTool(context,{policy:toolPolicy,currentConfig,getSkypeToken,getGraphToken,sdk}),{name:'teams_chat',workspaceAccess:false});
+}});
 }
