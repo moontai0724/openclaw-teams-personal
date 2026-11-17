@@ -64,7 +64,22 @@ node src/cli.ts replay --config test/fixtures/scope.json \
   refreshed every four seconds through the host SDK. Completion, silence, errors
   and cancellation stop refresh; Teams clears the transient indicator on expiry.
   Live policy and bot identity are rechecked before every control. Typing failures
-  do not block text replies. No presence, scope or global config is changed.
+  do not block text replies. Typing does not change presence, scope or global config.
+
+- The channel publishes native Available presence while its authenticated message
+  transport is connected, refreshing its own endpoint every 60 seconds. Socket
+  loss, account stop and plugin replacement abort refresh and remove only this
+  connector's presence endpoint. A separate random ID keeps it independent of
+  the messaging endpoint and other clients. No forced account-wide availability,
+  status note, new permission, schedule or config field is introduced. Manual
+  availability and other clients may affect the combined status. Unclean process
+  exits depend on Teams expiry; offline presentation is not guaranteed immediate.
+  Presence errors are contained and do not stop text receipt/replies.
+
+Presence is loaded in production generation 4 (2026-11-17 09:35 Asia/Taipei).
+The normal 60-second refresh succeeded and self-readback is Available/Available;
+requester-observed green-dot visibility remains unverified. See the status record
+for deployed artifact provenance and the pending UI check.
 
 See [status](docs/STATUS.md) for observed verification; synthetic fixtures and local
 tests never establish successful Teams registration or actual message delivery.

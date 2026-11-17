@@ -184,6 +184,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
     log('scoped_history_repaired');
   };
   await listen({ auth, fetch: fetcher, socket: makeSocket, onBody: body, onReady: repair, onLoss: repair,
+    onDisconnected: () => status({ connected: false }),
     log: (event, data) => {
       log(event, data);
       if (event === 'registered' || event === 'registration_renewed') status({ connected: true, lastError: null });

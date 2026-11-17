@@ -10,6 +10,7 @@ type Deps = {
   auth: AuthProvider; fetch: Fetch; socket: (url: URL) => Socket;
   onBody: (body: Json) => Promise<void>;
   onReady: () => Promise<void>; onLoss: () => Promise<void>; log: Log;
+  onDisconnected?: () => void;
 };
 export type Options = { endpointId: string; registrar: string; dropAfterMs?: number; reconnectDelayMs?: number };
 
@@ -68,6 +69,9 @@ async function session(deps: Deps, options: Options, credential: Awaited<ReturnT
     controller.abort();
     for (const timer of timers) clearTimeout(timer);
     socket.close(); done();
+    // Notify before draining pending history/ingress work, so presence can stop
+    // as soon as the transport is lost rather than after that work completes.
+    deps.onDisconnected?.();
   };
   const later = (work: () => void, ms: number) => {
     if (signal.aborted) return;

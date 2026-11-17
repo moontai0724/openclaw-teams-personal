@@ -80,6 +80,42 @@ history supplies context but cannot open a turn. Persisted checkpoints for
 disabled/revoked groups are retained but never read as authorization. Malformed state scope still fails closed; do not delete state
 or reset old cursors to bypass that check.
 
+## Native online presence
+
+The production channel, not the CLI, publishes an independent presence endpoint
+after authenticated messaging registration. Refresh runs every 60 seconds, with
+owned-endpoint removal on disconnect/stop. It does not force account-wide status
+or change manual overrides, calling endpoints, account/room scope or schedules.
+
+The bounded 2026-11-17 09:32 Asia/Taipei manager/API check passed publish, refresh,
+disconnect cleanup, reconnect and stop, with self-readback transitions Offline →
+Available → Offline → Available → Offline. A 1.5-second test-only refresh shortened
+that check. Config/watermark hashes and the 13-message/four-bot-reply test history
+were unchanged. This isolated check does not establish the requester's UI.
+
+Production checkpoint: generation 4 loaded at 09:35:24 Asia/Taipei without a
+Gateway restart (`restartRequired: false`, source digest
+`f5f73b4ded9e37cb0e16f145d3fd532b1b300f260cf21e6dfb6cd44a9d494a9f`).
+Authentication/registration and initial presence publication succeeded at
+09:35:26; scoped recovery completed by 09:35:28. The production 60-second refresh
+succeeded at 09:36:26.733. At 09:36:57, self-readback returned HTTP 200/status
+20000 and Available/Available. The channel is running/connected/ready with no
+pending restart or last error. Artifact hashes match; config, manifest, legacy
+watermark, messaging endpoint, bot identity and activation fences are unchanged.
+Test-group history retains 13 messages/four bot replies and no reply after reload.
+Deployment used a presence working tree based on `ede0ee1`; the matching source
+and tests are included in this native-presence feature revision. Do not repeat
+this successful reload.
+
+For future replacements, verify successful authenticated registration and the
+`Teams presence available` log, then read back only the bot's own presence and
+observe a production activity refresh. Retain before/after message IDs and
+config/watermark/activation fences; never reset state to test this feature. Ask
+the requester to check the bot's native status dot. A successful API readback
+does not prove the requester's UI refreshed. Manual status/other clients can
+override the combined result. Abrupt process loss relies on native expiry, and
+cleanup failures are reported rather than described as guaranteed offline.
+
 Acceptance after reload: verify runtime generation, authenticated registration,
 a real scoped incoming event, native ingress/model turn, one platform reply and
 reply readback. Test untagged context + mention, quoted reply, edit, and reconnect.

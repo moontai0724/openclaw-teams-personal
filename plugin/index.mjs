@@ -4,11 +4,12 @@ import { runReceiver } from './receiver.mjs';
 import { createTeamsActions } from './actions.mjs';
 import { createScopedPolicy, createOwnerEnrollment } from './enrollment.mjs';
 import { createTeamsTyping } from './typing.mjs';
+import { createPresenceApi, createTeamsPresence } from './presence.mjs';
 
 // The deployment bridge supplies the host's SDK and existing approved auth/client.
 // This keeps the repository independent of machine paths and credential storage.
 export function createTeamsChannel({ sdk, getSkypeToken, hasSavedLogin, createTeamsClient, policy: basePolicy, sharedEnroll,
-  reactionEmojis, normalizeReactionKey, receiver = runReceiver }) {
+  reactionEmojis, normalizeReactionKey, receiver = runReceiver, makePresence = createTeamsPresence }) {
 const { defineChannelPluginEntry, dispatchChannelInboundTurn, createChannelInboundEnvelopeBuilderAsync, createTypingCallbacks,
   createChannelIngressMonitor, bindIngressLifecycleToReplyOptions,
   createChannelMessageAdapterFromOutbound } = sdk;
@@ -115,16 +116,21 @@ const plugin = {
     });
     monitor.start();
     ctx.setStatus({accountId:'default',running:true,connected:false,lastStartAt:Date.now()});
+    const presence = makePresence({ signal: ctx.abortSignal, log: ctx.log,
+      api: createPresenceApi({ policy, currentConfig: () => runtime.config.current(), getSkypeToken, assertAuthority }) });
     try {
       await receiver({
         authProvider:getSkypeToken, policy, stateDir:dir,
         enroll:createOwnerEnrollment({policy:basePolicy,current:()=>runtime.config.current(),
           mutate:options=>runtime.config.mutateConfigFile(options),sharedEnroll,assertAuthority}),
         admit:m=>monitor.admit(m), assertAuthority, signal:ctx.abortSignal,
-        status:fields=>ctx.setStatus({accountId:'default',...fields}),
+        status:fields=>{
+          ctx.setStatus({accountId:'default',...fields});
+          if (typeof fields.connected === 'boolean') presence.setConnected(fields.connected);
+        },
         log:(event,data)=>ctx.log?.info(`Teams realtime ${event}${data?' '+JSON.stringify(data):''}`),
       });
-    }finally{await monitor.stop();ctx.setStatus({accountId:'default',running:false,connected:false});}
+    }finally{await presence.stop();await monitor.stop();ctx.setStatus({accountId:'default',running:false,connected:false});}
   }},
 };
 return defineChannelPluginEntry({id:CHANNEL,name:'Teams Personal',description:'Approved Teams Free DM and group connector',plugin,setRuntime:r=>{runtime=r;}});

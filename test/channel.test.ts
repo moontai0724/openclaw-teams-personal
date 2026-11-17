@@ -28,6 +28,7 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
   let typingOptions: any;
   let typingCleaned = false;
   let dispatchMode = 'reply';
+  const presenceStates: unknown[] = [];
   const abort = new AbortController();
   const typingCallbacks = { onReplyStart() {}, onIdle() {}, onCleanup() { typingCleaned = true; } };
   const entry = createTeamsChannel({ policy,
@@ -35,10 +36,15 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
     createTeamsClient: () => ({ whoAmI: async () => ({ mri: policy.BOT }),
       sendMessage: async (to: string, text: string) => { assert.equal(to, group); assert.equal(text, 'synthetic reply'); return { arrivalTime: '1794800000002' }; },
     }),
-    receiver: async ({ admit }: { admit: (m: unknown) => Promise<void> }) => {
+    makePresence: () => ({ setConnected: (value: boolean) => presenceStates.push(value),
+      stop: async () => { presenceStates.push('stopped'); } }),
+    receiver: async ({ admit, status }: { admit: (m: unknown) => Promise<void>; status: (fields: unknown) => void }) => {
+      status({ connected: true });
+      status({ lastInboundAt: Date.now() });
       await admit({ conversationId: group, id: '1794800000001', text: 'current request',
         time: new Date().toISOString(), fromId: policy.SENDER, from: 'Synthetic user',
         mentions: [{ mri: policy.BOT }], history, quote });
+      status({ connected: false });
     },
     sdk: {
       defineChannelPluginEntry: (value: unknown) => value,
@@ -81,6 +87,7 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
       },
     });
     assert.equal(dispatched, true);
+    assert.deepEqual(presenceStates, [true, false, 'stopped']);
     assert.equal(typingCleaned, true);
     assert.equal(typingOptions.keepaliveIntervalMs, 4000);
     assert.equal(typingOptions.maxDurationMs, 600000);

@@ -1,5 +1,50 @@
 # Status
 
+## Native online presence (2026-11-17)
+
+The owner requested the bot's online status in Telegram topic 189, message 318.
+The channel now publishes a separate native Available endpoint only while the
+authenticated message transport is connected. It refreshes activity every 60
+seconds, aborts on socket loss/stop, and deletes only its own random endpoint.
+Transport disconnect notification happens before pending recovery drains.
+Live config/token identity guards, bounded requests, retry-after/backoff, expired
+endpoint recreation and shutdown cleanup are covered by offline tests. No forced
+availability, account/room policy, credential scope, dependency or cron is added.
+The receive-only CLI remains unchanged.
+
+At 09:32 Asia/Taipei, a bounded run of the actual presence manager/API proved
+Offline → Available → Offline → Available → Offline, including a successful
+activity refresh. Two PUTs returned 201, one POST and two DELETEs returned 200;
+self-presence readbacks returned status 20000. This isolated test used a shortened
+1.5-second refresh interval, not the production 60-second interval. The existing
+test-group history stayed at 13 messages/four bot replies; persisted config and
+legacy watermark hashes were unchanged. Private proof remains gitignored.
+
+All 54 offline tests pass with the host enrollment/typing integrations enabled,
+with no skipped cases, and syntax checks pass. The feature was deployed from a
+working tree based on `ede0ee1`; its source, tests and acceptance records are
+included in this native-presence feature revision. The deployed bundle SHA-256 is
+`4f54123af3c9c6e3d08331bd125bdba3fc130cf9f2674d10d466148114402358`.
+
+Generation 4 loaded at 09:35:24 Asia/Taipei without a Gateway restart. The reload
+receipt reports `ok: true`, `restartRequired: false`, and source digest
+`f5f73b4ded9e37cb0e16f145d3fd532b1b300f260cf21e6dfb6cd44a9d494a9f`.
+The selected entry remains the existing deployment bridge. Authentication and
+registration completed at 09:35:26; presence publication succeeded at 09:35:26.626
+and scoped recovery completed by 09:35:28. The production 60-second activity
+refresh succeeded at 09:36:26.733. Channel status is running/connected/ready,
+with no pending restart or last error. Do not repeat the successful reload.
+
+Self-readback at 09:36:57 returned HTTP 200, status 20000 and
+Available/Available. The existing test-group history still has 13 messages/four
+bot replies, with no bot reply after reload. Config, manifest, legacy watermark,
+messaging endpoint, bot identity and activation fences are unchanged, and the
+published artifacts match the handoff hashes. This establishes production
+publication/refresh and API-visible availability, not a fresh post-reload model
+turn or requester-observed green-dot visibility. That UI check remains pending.
+Other clients/manual availability can affect combined presence; hard process
+kills depend on Teams expiry instead of graceful endpoint removal.
+
 ## Typing indicator (2026-11-17)
 
 The owner requested native typing during processing in Telegram topic 189, message
@@ -212,7 +257,7 @@ was subsequently authorized in message 254; its current status is recorded above
 
 ## Completion evidence
 
-1. Confirmed: 47 offline protocol/validation/recovery/channel/action/typing tests and syntax
+1. Confirmed: 54 offline protocol/validation/recovery/channel/action/typing/presence tests and syntax
    checks pass.
 2. Confirmed: a bounded live run and the replacement Gateway runtime both reach
    authenticated and registered state.

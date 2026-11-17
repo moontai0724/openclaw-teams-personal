@@ -138,3 +138,25 @@ test('stopped registration cannot report connected or start recovery after a lat
   assert.equal(events.includes('registered'), false);
   assert.equal(events.includes('registration_renewed'), false);
 });
+
+test('socket loss reports disconnected before pending recovery drains', async () => {
+  const controller = new AbortController();
+  const socket = new FakeSocket();
+  let release!: () => void;
+  let disconnected = 0;
+  let recovering = false;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const run = listen({ auth, socket: () => socket,
+    fetch: (async () => new Response(null, { status: 201 })) as typeof fetch,
+    onReady: async () => { recovering = true; await pending; }, onBody: async () => {}, onLoss: async () => {},
+    onDisconnected: () => { disconnected++; }, log() {},
+  }, options, controller.signal);
+  await new Promise(resolve => setImmediate(resolve));
+  socket.receive('1::'); socket.receive(eventFrame('trouter.connected', [route]));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(recovering, true);
+  socket.close();
+  assert.equal(disconnected, 1);
+  controller.abort(); release(); await run;
+  assert.equal(disconnected, 1);
+});
