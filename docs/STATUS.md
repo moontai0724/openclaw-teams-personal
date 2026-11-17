@@ -1,5 +1,22 @@
 # Status
 
+## Typing indicator (2026-11-17)
+
+The owner requested native typing during processing in Telegram topic 189, message
+308. The channel now supplies host SDK typing callbacks to both group and direct
+turns, with four-second refresh, bounded failure handling and abort/idle cleanup.
+Incoming transient controls cannot enter context or durable ingress. DM routing
+retains its private sender guard and original per-channel-peer scope. The instant
+presentation mode is per-turn only; no persisted config or allowlist is changed.
+All 47 offline tests pass with both host enrollment and typing integrations
+enabled, along with syntax checks. At 09:09 Asia/Taipei a bounded direct-handler
+run in the existing test group received two HTTP 201 controls (initial + refresh).
+Text history remained at 11 messages / three bot replies; persisted config and
+legacy watermark digests were unchanged. Deployment is pending. Production
+model/UI typing acceptance still requires a fresh addressed Teams turn.
+
+## Previous deployed checkpoint
+
 Stage: new-group text/context/native-quote acceptance and isolated reconnect
 confirmed; registrar shutdown fix deployed, production repair/replay check passed.
 Emoji reactions are accepted by the owner (Telegram topic 189, message 254).
@@ -178,7 +195,7 @@ was subsequently authorized in message 254; its current status is recorded above
 
 ## Completion evidence
 
-1. Confirmed: 40 offline protocol/validation/recovery/channel/action tests and syntax
+1. Confirmed: 47 offline protocol/validation/recovery/channel/action/typing tests and syntax
    checks pass.
 2. Confirmed: a bounded live run and the replacement Gateway runtime both reach
    authenticated and registered state.

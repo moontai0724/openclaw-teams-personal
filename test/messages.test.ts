@@ -34,3 +34,9 @@ test('edit and deletion events have different durable keys from original message
   assert.equal(deleted.kind, 'delete');
   assert.equal(deleted.text, '');
 });
+
+test('ephemeral typing controls without message IDs never enter context or durable ingress', () => {
+  for (const messagetype of ['Control/Typing', 'Control/ClearTyping']) {
+    assert.equal(normalize({ ...raw, id: undefined, messagetype, content: '' }, 'NewMessage', scope, true), null);
+  }
+});

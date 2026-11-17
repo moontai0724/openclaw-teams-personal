@@ -157,3 +157,28 @@ new exact config entry, one ingress/model/reply and no older replayed requests.
 Have another member tag the bot to verify ordinary member access. Do not inject
 synthetic production events or remove an existing room merely to manufacture a
 test. A user-accepted emoji test does not establish this enrollment behavior.
+
+## Typing indicator
+
+For an addressed turn in an already approved Teams group or DM, watch for the
+native typing indicator during reasoning/tool work and its disappearance after
+completion, silence or cancellation (allow for Teams expiry). Untagged ambient
+traffic must not start typing or a model turn. Confirm normal reply routing and
+unchanged history; typing controls are ephemeral and excluded from durable ingress.
+The adapter uses the host SDK lifecycle, a four-second refresh and ten-minute SDK
+safety TTL. A queued follow-up retains its callbacks; abort/idle/error cleanup
+cancels in-flight requests. Two consecutive typing API failures stop the SDK loop
+without failing the text reply. Live account and destination checks run on every
+refresh, including after async token preparation.
+
+The DM convenience SDK does not expose typing; the DM now uses the same routed
+dispatcher as groups, preserving its original envelope, private sender guard and
+per-channel-peer session scope. `typingMode: instant` is applied only to the
+current Teams turn config object, never persisted as a global preference.
+
+2026-11-17 09:09 Asia/Taipei: a bounded direct-handler run in the existing approved
+test group received HTTP 201 for the initial control and its four-second refresh.
+Cleanup stopped the loop. Readback retained the same 11 text messages and three
+bot replies; persisted config and legacy watermark digests were unchanged.
+This is direct API/SDK evidence, not the production model lifecycle or the
+requester's visible Teams UI. Those still require a fresh addressed Teams turn.

@@ -23,8 +23,8 @@ if (values.restore) {
 } else {
   const factory = resolve(dirname(fileURLToPath(import.meta.url)), '../plugin/index.mjs');
   const source = `import { defineChannelPluginEntry } from 'openclaw/plugin-sdk/channel-core';
-import { dispatchInboundDirectDm, dispatchChannelInboundTurn } from 'openclaw/plugin-sdk/channel-inbound';
-import { createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, createChannelMessageAdapterFromOutbound } from 'openclaw/plugin-sdk/channel-outbound';
+import { createChannelInboundEnvelopeBuilderAsync, dispatchChannelInboundTurn } from 'openclaw/plugin-sdk/channel-inbound';
+import { createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, createTypingCallbacks, createChannelMessageAdapterFromOutbound } from 'openclaw/plugin-sdk/channel-outbound';
 import { jsonResult } from 'openclaw/plugin-sdk/channel-actions';
 import { getSkypeToken, hasSavedLogin } from '../upstream/src/auth.js';
 import { createTeamsClient } from '../upstream/src/core/teams.js';
@@ -34,8 +34,8 @@ import { createTeamsChannel } from './realtime.mjs';
 import { enrollOwnerGroup as sharedEnroll } from '../../../maintenance/owner-group-enrollment/enrollment.mjs';
 export default createTeamsChannel({ getSkypeToken, hasSavedLogin, createTeamsClient, policy, sharedEnroll,
   reactionEmojis: REACTION_EMOJIS, normalizeReactionKey,
-  sdk: { defineChannelPluginEntry, dispatchInboundDirectDm, dispatchChannelInboundTurn,
-    createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, createChannelMessageAdapterFromOutbound, jsonResult } });
+  sdk: { defineChannelPluginEntry, createChannelInboundEnvelopeBuilderAsync, dispatchChannelInboundTurn,
+    createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, createTypingCallbacks, createChannelMessageAdapterFromOutbound, jsonResult } });
 `;
   if (values['dry-run']) process.stdout.write(source);
   else {

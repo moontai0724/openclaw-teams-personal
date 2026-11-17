@@ -60,5 +60,11 @@ node src/cli.ts replay --config test/fixtures/scope.json \
   chat. Account/destination guards remain in force; no new dependency is added.
   An unverified outcome is reported without automatically resending the mutation.
 
+- Addressed DM/group turns send native typing controls while the model works,
+  refreshed every four seconds through the host SDK. Completion, silence, errors
+  and cancellation stop refresh; Teams clears the transient indicator on expiry.
+  Live policy and bot identity are rechecked before every control. Typing failures
+  do not block text replies. No presence, scope or global config is changed.
+
 See [status](docs/STATUS.md) for observed verification; synthetic fixtures and local
 tests never establish successful Teams registration or actual message delivery.

@@ -3,12 +3,13 @@ import path from 'node:path';
 import { runReceiver } from './receiver.mjs';
 import { createTeamsActions } from './actions.mjs';
 import { createScopedPolicy, createOwnerEnrollment } from './enrollment.mjs';
+import { createTeamsTyping } from './typing.mjs';
 
 // The deployment bridge supplies the host's SDK and existing approved auth/client.
 // This keeps the repository independent of machine paths and credential storage.
 export function createTeamsChannel({ sdk, getSkypeToken, hasSavedLogin, createTeamsClient, policy: basePolicy, sharedEnroll,
   reactionEmojis, normalizeReactionKey, receiver = runReceiver }) {
-const { defineChannelPluginEntry, dispatchInboundDirectDm, dispatchChannelInboundTurn,
+const { defineChannelPluginEntry, dispatchChannelInboundTurn, createChannelInboundEnvelopeBuilderAsync, createTypingCallbacks,
   createChannelIngressMonitor, bindIngressLifecycleToReplyOptions,
   createChannelMessageAdapterFromOutbound } = sdk;
 let runtime;
@@ -61,6 +62,18 @@ const plugin = {
     if (!state.group) { state.group={since:Date.now(),lastId:'0'}; await fs.writeFile(stateFile,JSON.stringify(state),{mode:0o600}); }
     const channelRuntime=ctx.channelRuntime??runtime.channel;
     const assertAuthority=()=>{if(ctx.abortSignal.aborted) throw new Error('Teams account stopped');assertConfig(runtime.config.current());};
+    const dispatchWithTyping = async (params, chat, lifecycle) => {
+      const typing = createTeamsTyping({ createTypingCallbacks, policy, to: chat, getSkypeToken,
+        currentConfig: () => runtime.config.current(), assertAuthority, log: ctx.log,
+        signal: AbortSignal.any([ctx.abortSignal, lifecycle.abortSignal ?? ctx.abortSignal]) });
+      try {
+        const result = await dispatchChannelInboundTurn({ ...params,
+          replyPipeline: { ...params.replyPipeline, typingCallbacks: typing.callbacks } });
+        // A queued follow-up retains the callbacks until the host runs/settles it.
+        if (!result?.dispatchResult?.deferredToActiveRun) typing.cleanup();
+        return result;
+      } catch (error) { typing.cleanup(); throw error; }
+    };
     const monitor=createChannelIngressMonitor({
       queue:()=>runtime.state.openChannelIngressQueue({accountId:'default'}),
       inspect:(m)=>(admitted(m,state.since)||groupAdmitted(m,state.group.since))?{eventId:m.id,laneKey:m.conversationId}:null,
@@ -69,7 +82,9 @@ const plugin = {
       onError:(e)=>ctx.log?.error(String(e)),
       deliver:async(m,lifecycle)=>{
         assertAuthority();
-        const cfg=runtime.config.current();
+        const current=runtime.config.current();
+        // Per-turn presentation only; never write global session preferences.
+        const cfg={...current,session:{...current.session,typingMode:'instant'}};
         if (m.conversationId !== CHAT) {
           if (!policy.groupAllowed(m.conversationId)) throw new Error('Group destination no longer approved');
           const group = m.conversationId;
@@ -79,21 +94,23 @@ const plugin = {
           if (!ingress.senderAccess.allowed) throw new Error('Group ingress denied');
           const explicit=Boolean(m.mentions?.some(x=>x.mri===BOT));
           const ctxPayload=await channelRuntime.inbound.buildContext({channel:CHANNEL,accountId:'default',provider:CHANNEL,surface:CHANNEL,messageId:m.id,messageIdFull:m.id,timestamp:Date.parse(m.time),from:group,sender:{id:m.fromId,name:m.from},conversation:{kind:'group',id:group,label:groupLabel(group),routePeer:{kind:'group',id:group}},route:{agentId:route.agentId,accountId:'default',routeSessionKey:route.sessionKey,dispatchSessionKey:route.sessionKey},reply:{to:group,originatingTo:group},message:{rawBody:m.text,bodyForAgent:m.text,commandBody:m.text,inboundHistory:m.history,inboundEventKind:'user_request'},access:{commands:{authorized:false},mentions:{canDetectMention:true,wasMentioned:explicit,explicitlyMentionedBot:explicit,effectiveWasMentioned:explicit||m.replyToBot===true,requireMention:true}},channelIngress:ingress,supplemental:m.quote?{quote:m.quote}:undefined,extra:{OriginatingChannel:CHANNEL}});
-          await dispatchChannelInboundTurn({cfg,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority,...bindIngressLifecycleToReplyOptions(lifecycle),delivery:{deliver:async(payload)=>{assertAuthority();if(payload.mediaUrl||payload.mediaUrls?.length) throw new Error('Text only');if(payload.text) await send(runtime.config.current(),group,payload.text);},onError:e=>ctx.log?.error(`Teams group dispatch: ${String(e)}`)}});
+          await dispatchWithTyping({cfg,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority,...bindIngressLifecycleToReplyOptions(lifecycle),delivery:{deliver:async(payload)=>{assertAuthority();if(payload.mediaUrl||payload.mediaUrls?.length) throw new Error('Text only');if(payload.text) await send(runtime.config.current(),group,payload.text);},onError:e=>ctx.log?.error(`Teams group dispatch: ${String(e)}`)}},group,lifecycle);
           return;
         }
         // Force channel/peer isolation without changing the global session preference.
         const scoped={...cfg,session:{...cfg.session,dmScope:'per-channel-peer'}};
-        await dispatchInboundDirectDm({cfg:scoped,channel:CHANNEL,channelLabel:'Teams Personal',accountId:'default',peer:{kind:'direct',id:CHAT},senderId:SENDER,senderAddress:CHAT,recipientAddress:CHAT,conversationLabel:'月太',rawBody:m.text,messageId:m.id,timestamp:Date.parse(m.time),commandAuthorized:false,originatingTo:CHAT,channelRuntime,assertAuthority,
-          resolveChannelIngress:async(contextBinding)=>{
-            const result=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:SENDER},conversation:{kind:'direct',id:CHAT},contextBinding,dmPolicy:'allowlist',groupPolicy:'disabled',allowFrom:[SENDER],useDefaultPairingStore:false,command:false});
-            if(!result.senderAccess.allowed) throw new Error('Teams ingress denied');
-            return result;
-          },
+        // The DM convenience dispatcher does not expose typing. Use the same
+        // native routed dispatcher and retain its envelope/context/DM isolation.
+        const route=channelRuntime.routing.resolveAgentRoute({cfg:scoped,channel:CHANNEL,accountId:'default',peer:{kind:'direct',id:CHAT}});
+        const ingress=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:SENDER},conversation:{kind:'direct',id:CHAT},contextBinding:{agentId:route.agentId,sessionKey:route.sessionKey,messageId:m.id,inboundEventKind:'user_request'},dmPolicy:'allowlist',groupPolicy:'disabled',allowFrom:[SENDER],useDefaultPairingStore:false,command:false});
+        if(!ingress.senderAccess.allowed) throw new Error('Teams ingress denied');
+        const body=(await createChannelInboundEnvelopeBuilderAsync({cfg:scoped,route}))({channel:'Teams Personal',from:'月太',body:m.text,timestamp:Date.parse(m.time)});
+        const ctxPayload=await channelRuntime.inbound.buildContext({channel:CHANNEL,accountId:'default',messageId:m.id,messageIdFull:m.id,timestamp:Date.parse(m.time),from:CHAT,sender:{id:SENDER,name:'月太'},conversation:{kind:'direct',id:CHAT,label:'月太',routePeer:{kind:'direct',id:CHAT}},route:{agentId:route.agentId,accountId:route.accountId,routeSessionKey:route.sessionKey,dispatchSessionKey:route.sessionKey},reply:{to:CHAT,originatingTo:CHAT},message:{body,rawBody:m.text,bodyForAgent:m.text,commandBody:m.text},access:{commands:{authorized:false}},channelIngress:ingress,extra:{NativeDirectUserId:CHAT,OriginatingChannel:CHANNEL}});
+        await dispatchWithTyping({cfg:scoped,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority,
           ...bindIngressLifecycleToReplyOptions(lifecycle),
-          deliver:async(payload)=>{assertAuthority();if(payload.mediaUrl||payload.mediaUrls?.length) throw new Error('Teams personal adapter supports text only');if(payload.text) await send(runtime.config.current(),CHAT,payload.text);},
-          onRecordError:(e)=>ctx.log?.error(`Teams session record: ${String(e)}`),onDispatchError:(e)=>{ctx.log?.error(`Teams dispatch: ${String(e)}`);},
-        });
+          record:{onRecordError:(e)=>ctx.log?.error(`Teams session record: ${String(e)}`)},
+          delivery:{deliver:async(payload)=>{assertAuthority();if(payload.mediaUrl||payload.mediaUrls?.length) throw new Error('Teams personal adapter supports text only');if(payload.text) await send(runtime.config.current(),CHAT,payload.text);},onError:(e)=>ctx.log?.error(`Teams dispatch: ${String(e)}`)},
+        },CHAT,lifecycle);
       },
     });
     monitor.start();

@@ -20,3 +20,8 @@ Set `TEAMS_ENROLLMENT_CORE` to that module's absolute path when running `npm tes
 to include the two host-core adapter/receiver integration cases. Without it those
 two cases are explicitly skipped; no substitute enrollment core is bundled.
 The module is read as code, not a credential source. Never point it at an untrusted file.
+
+Set `TEAMS_TYPING_SDK` to the installed host SDK `channel-outbound.js` absolute
+path to exercise the real typing keepalive/cleanup and circuit breaker with mocked
+timers. This integration case is explicitly skipped without the host SDK; no SDK
+package is installed. Typing sender/channel tests remain dependency-free.

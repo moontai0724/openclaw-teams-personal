@@ -54,3 +54,16 @@ pages; report an incomplete gap instead of claiming losslessness. Never mark rea
 
 This is independently written protocol code. Third-party sources are references,
 not copied implementations; no third-party packages or GPL code are vendored.
+
+## Channel typing controls
+
+The deployed Teams Free worker
+[`sendTypingIndicator` resolver](https://teams.live.com/v2/worker/precompiled-shared-worker-f46f6510b75335ae.js)
+posts an empty `Application/Message` body with message type `Control/Typing`
+through `postMessageToConversation`. The channel uses this exact control on the
+existing conversation message endpoint; it does not send a text placeholder or
+change presence. Refresh runs every four seconds through the host SDK. Stopping
+means ending refresh and letting the transient control expire; no unverified
+clear-typing write is introduced. Incoming typing/clear controls are filtered
+before durable message ID validation and never enter history/model context.
+The receive-only CLI remains receive-only.

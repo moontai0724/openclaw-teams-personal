@@ -37,6 +37,8 @@ export function normalize(resource: unknown, resourceType: string, scope: Scope,
   const raw = object(resource);
   const chatId = raw.conversationid ?? raw.conversationId ?? idFromLink(raw.conversationLink ?? raw.resourceLink, 'conversation');
   if (chatId !== scope.chatId) return null;
+  // Ephemeral typing controls have no durable chat-message identity.
+  if (['Control/Typing', 'Control/ClearTyping'].includes(String(raw.messagetype))) return null;
   const authorId = idFromLink(raw.fromId ?? raw.from, 'contact');
   if (!authorId || (!includeSelf && authorId === scope.expectedAccount)) return null;
   if (typeof raw.id !== 'string' || !/^\d{1,24}$/.test(raw.id)) throw new PocError('Message lacks stable ID');
