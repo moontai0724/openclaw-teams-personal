@@ -1,5 +1,23 @@
 # Status
 
+## Independent account, messages and original files (2026-11-17)
+
+The channel now owns auth/token renewal, text/reply send, same-chat reads/search,
+reactions, verified bot-only edit/delete and original-file upload/download. Native
+`message` adds read/edit/delete and `teams_chat` exposes scoped history, search,
+files, read-file and explicit mark-read. The original encrypted credential data,
+approved identities, group map, transport endpoint and replay fences are retained.
+No third-party source was copied into this implementation. No npm package was added.
+
+All 66 offline tests pass, including the host enrollment/typing integrations;
+syntax checks pass. A bounded real client run authenticated the approved account,
+read test-group history and a known bot message, sent one test text, verified its
+edit and deletion, uploaded an original text file, downloaded the identical bytes
+and removed the test message. The round-trip SHA-256 is
+`687864ca5430d464990bb47c878e405da1d1b4022aa9aaa38383a315021c70d3`.
+These are client/API checks, not post-deployment native-tool/model acceptance.
+Production replacement and old runtime removal are still pending.
+
 ## Native online presence (2026-11-17)
 
 The owner requested the bot's online status in Telegram topic 189, message 318.
@@ -257,7 +275,7 @@ was subsequently authorized in message 254; its current status is recorded above
 
 ## Completion evidence
 
-1. Confirmed: 54 offline protocol/validation/recovery/channel/action/typing/presence tests and syntax
+1. Confirmed: 66 offline protocol/validation/recovery/channel/action/account/client/media tests and syntax
    checks pass.
 2. Confirmed: a bounded live run and the replacement Gateway runtime both reach
    authenticated and registered state.
@@ -300,18 +318,13 @@ retained-work drain limit; native deferred application later succeeded at
 preceded activation; global owners, login, transport endpoint and replay state
 were not changed.
 
-## Media support checkpoint
+## Original-file scope
 
-The owner asked to revisit image/media receipt and sending after whitelist work
-(Telegram topic 189, message 274). The current adapter declares `media:false`,
-passes only normalized text/history to native ingress, and rejects outbound
-media payloads. It does not download incoming pictures or attach image bytes to
-model context. The installed upstream client exposes `getSharedFiles` and
-`readAttachment`, including image download, but the channel does not call them.
-No upload/image-send method is wired into outbound delivery. These are source
-inspection findings, not live media acceptance.
-
-The next proposed feature is scoped incoming image download and model handoff,
-then outgoing image upload/send with platform readback. General files, audio and
-video remain outside the implemented scope. No media code was added at this
-checkpoint.
+Attachments are now transferred as original files; the channel does not parse
+Office/PDF contents. Incoming references include OneDrive files, inline images
+and ASM File.1 objects. Native media storage/read policies remain authoritative.
+Uploads use the original view and do not optimize pictures. The direct API
+round-trip passed byte comparison; a new real Teams attachment must still verify
+native ingress/model handoff and same-conversation tool use after replacement.
+Audio/video are supported only as original files, not specialized voice/video
+messages. Account-wide search and group administration are not exposed.

@@ -8,6 +8,7 @@ import { trustedUrl, object } from '../src/protocol.ts';
 import { request, readJson } from '../src/http.ts';
 import { isGroupId } from './enrollment.mjs';
 import { PocError } from '../src/errors.ts';
+import { attachmentList } from '../src/client.mjs';
 
 // Ephemeral context is isolated by conversation, bounded, and refreshed by edits.
 export class ContextWindow {
@@ -37,12 +38,13 @@ export class ContextWindow {
   }
 }
 
-export function legacyMessage(raw, type, chat, bot) {
+export function channelMessage(raw, type, chat, bot) {
   const message = normalize(raw, type, { chatId: chat, expectedAccount: bot }, true);
   if (!message) return null;
+  const attachments = attachmentList(raw).map(({ index, kind, name }) => ({ index, kind, name }));
   return {
     id: message.id, version: message.version, conversationId: chat, fromId: message.author.id, from: message.author.name,
-    isMine: message.author.id === bot, time: message.time, text: message.text,
+    isMine: message.author.id === bot, time: message.time, text: message.text || (attachments.length ? '[附件]' : ''), attachments,
     mentions: message.mentions.map(item => ({ mri: item.id, name: item.name })),
     edited: message.kind === 'update' || Boolean(raw.properties?.edittime), deleted: message.kind === 'delete',
     forwarded: Boolean(raw.properties?.originalMessageContext),
@@ -128,7 +130,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
       // Account-wide push facts are checked before the unknown-room rejection;
       // ordinary traffic is neither cached nor logged nor sent to the model.
       if (!enroll || event.type !== 'NewMessage' || !isGroupId(chat)) return;
-      const candidate = legacyMessage(raw, event.type, chat, BOT);
+      const candidate = channelMessage(raw, event.type, chat, BOT);
       if (!candidate || !await enroll(candidate, startedAt) || !groups().includes(chat)) return;
       activate(chat);
       await save();
@@ -141,7 +143,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
       originalarrivaltime: previous.time, ...raw,
       properties: { mentions: previous.mentions.map(item => ({ mri: item.mri, displayName: item.name })), ...raw.properties },
     } : raw;
-    await accept(legacyMessage(resource, event.type, chat, BOT), 'push');
+    await accept(channelMessage(resource, event.type, chat, BOT), 'push');
   };
   const repair = async () => {
     for (const chat of chats()) {
@@ -167,7 +169,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
           const resource = object(raw);
           const id = resource.conversationid ?? resource.conversationId ?? chat;
           if (id !== chat) continue;
-          const message = legacyMessage({ ...resource, conversationid: chat }, resource.properties?.edittime ? 'MessageUpdate' : 'NewMessage', chat, BOT);
+          const message = channelMessage({ ...resource, conversationid: chat }, resource.properties?.edittime ? 'MessageUpdate' : 'NewMessage', chat, BOT);
           if (!message) continue;
           recovered.push(message);
           if (Date.parse(message.time) < fence) reached = true;

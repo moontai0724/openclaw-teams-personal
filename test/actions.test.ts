@@ -118,13 +118,25 @@ test('unsupported targets/accounts/emojis and conflicting destinations do no I/O
 
 test('dry-run and emoji discovery do not authenticate or mutate', async () => {
   const f = fixture();
-  assert.deepEqual(f.actions.describeMessageTool({ cfg: f.cfg() }).actions, ['send', 'react', 'emoji-list']);
+  assert.deepEqual(f.actions.describeMessageTool({ cfg: f.cfg() }).actions, ['send', 'react', 'emoji-list', 'read', 'edit', 'delete']);
   assert.equal((await f.actions.handleAction({ ...f.context, dryRun: true })).dryRun, true);
   assert.deepEqual((await f.actions.handleAction({ ...f.context, action: 'emoji-list' })).emojis, emojis);
   assert.deepEqual(f.stats(), { reads: 0, writes: 0, authCalls: 0 });
   f.disable();
   assert.deepEqual(f.actions.describeMessageTool({ cfg: f.cfg() }).actions, []);
   await assert.rejects(f.actions.handleAction(f.context), /policy not enabled/);
+});
+
+test('native edit/delete/read validate the current conversation and explicit IDs before I/O', async () => {
+  const f = fixture();
+  const edit = { ...f.context, action: 'edit', params: { to: group, messageId, message: 'replacement' }, dryRun: true };
+  assert.equal((await f.actions.handleAction(edit)).dryRun, true);
+  for (const action of ['edit', 'delete']) {
+    await assert.rejects(f.actions.handleAction({ ...f.context, action, params: { to: group } }), /explicit/);
+    await assert.rejects(f.actions.handleAction({ ...edit, action, params: { ...edit.params, to: other } }), /current conversation/);
+  }
+  await assert.rejects(f.actions.handleAction({ ...edit, toolContext: { ...edit.toolContext, currentChannelProvider: 'telegram' } }), /current conversation/);
+  assert.deepEqual(f.stats(), { reads: 0, writes: 0, authCalls: 0 });
 });
 
 test('reaction response lost after success is reconciled without a second write', async () => {

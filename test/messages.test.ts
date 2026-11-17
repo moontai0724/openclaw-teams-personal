@@ -11,7 +11,7 @@ test('untagged group text is retained; other groups and self messages never leav
   assert.equal(normalize(raw, 'NewMessage', scope)?.text, 'hello & world');
   assert.equal(normalize({ ...raw, conversationid: '19:other@thread.v2' }, 'NewMessage', scope), null);
   assert.equal(normalize({ ...raw, from: scope.expectedAccount }, 'NewMessage', scope), null);
-  assert.equal(normalize({ ...raw, messagetype: 'RichText/Media_GenericFile' }, 'NewMessage', scope), null);
+  assert.equal(normalize({ ...raw, messagetype: 'RichText/Media_GenericFile' }, 'NewMessage', scope)?.text, 'hello & world');
 });
 
 test('preserves authoritative mention MRI and separates quoted text from reply body', () => {

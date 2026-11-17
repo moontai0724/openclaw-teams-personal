@@ -98,3 +98,26 @@ activity refresh and a second publish/remove cycle. This is platform API evidenc
 not requester-observed UI evidence. Microsoft's Graph `setPresence` explicitly
 [does not support personal delegated accounts](https://learn.microsoft.com/en-us/graph/api/presence-setpresence?view=graph-rest-1.0);
 the existing personal-account web protocol avoids adding Graph permissions/login.
+
+## Independent account and original-file requests (2026-11-17)
+
+The account layer performs Microsoft consumer refresh and Teams authz directly,
+serializing refresh-token rotation and preserving the existing encrypted data
+format. Chat mutations use the consumer conversation API; an ambiguous send is
+reconciled by the reserved clientmessageid rather than resent. Edit/delete first
+verify authorship and then read back the exact affected message.
+
+The current Teams web worker constructs AMS object creation at POST v1/objects/
+with a native object type, filename and permissions for the exact conversation,
+then uploads bytes at PUT v1/objects/{id}/content/original. The channel uses
+sharing/file and a RichText/Media_GenericFile File.1 URIObject with amsreferences.
+Downloads use /views/original. Existing inline images use their ASM reference;
+OneDrive references resolve via Graph and download without forwarding Graph
+credentials to the signed download host. Redirects and unexpected hosts/scopes
+are refused. No document-content conversion is part of transport.
+
+Wire evidence: the deployed [Teams web entry](https://teams.live.com/v2/) and its
+Microsoft-hosted worker request constructors, checked on 2026-11-17. Authenticated
+client checks proved text send/edit/delete and a byte-identical original-file
+round-trip in the already approved test room. Native agent-tool use still needs
+post-replacement observation.

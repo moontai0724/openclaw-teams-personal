@@ -44,7 +44,7 @@ export function normalize(resource: unknown, resourceType: string, scope: Scope,
   if (typeof raw.id !== 'string' || !/^\d{1,24}$/.test(raw.id)) throw new PocError('Message lacks stable ID');
   const properties = raw.properties ? object(raw.properties) : {};
   const deleted = resourceType === 'MessageRemoved' || Boolean(properties.deletetime);
-  if (!deleted && (!['Text', 'RichText/Html', 'RichText'].includes(String(raw.messagetype)) || typeof raw.content !== 'string')) return null;
+  if (!deleted && (!['Text', 'RichText/Html', 'RichText', 'RichText/Media_GenericFile', 'RichText/UriObject'].includes(String(raw.messagetype)) || typeof raw.content !== 'string')) return null;
   let content = typeof raw.content === 'string' ? raw.content : '';
   const reply = /<blockquote\b[^>]*itemtype="http:\/\/schema\.skype\.com\/Reply"[^>]*>([\s\S]*?)<\/blockquote>/i.exec(content);
   let replyTo: Message['replyTo'];

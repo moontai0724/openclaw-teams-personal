@@ -1,15 +1,15 @@
 import { checkCredential } from '../src/auth.ts';
 
-// Reuse the installed client's emoji catalogue and emotion-property API.
+// Native message actions retain the host's direct-adapter authority boundary.
 export function createTeamsActions({ policy, currentConfig, getSkypeToken,
   createTeamsClient, reactionEmojis, normalizeReactionKey, jsonResult }) {
   const { CHANNEL, BOT, validConfig, targetAllowed, normalizedTarget } = policy;
   const configured = cfg => validConfig({ accountId: 'default', ...cfg.channels?.[CHANNEL] });
   return {
     describeMessageTool: ({ cfg, accountId }) => ({
-      actions: configured(cfg) && (!accountId || accountId === 'default') ? ['send', 'react', 'emoji-list'] : [],
+      actions: configured(cfg) && (!accountId || accountId === 'default') ? ['send', 'react', 'emoji-list', 'read', 'edit', 'delete'] : [],
     }),
-    supportsAction: ({ action }) => ['react', 'emoji-list'].includes(action),
+    supportsAction: ({ action }) => ['react', 'emoji-list', 'read', 'edit', 'delete'].includes(action),
     handleAction: async ctx => {
       const assertAuthority = () => {
         ctx.assertDirectAdapterHandoff?.();
@@ -18,7 +18,7 @@ export function createTeamsActions({ policy, currentConfig, getSkypeToken,
       };
       assertAuthority();
       if (ctx.action === 'emoji-list') return jsonResult({ ok: true, emojis: reactionEmojis });
-      if (ctx.action !== 'react') throw new Error('Unsupported Teams Personal action');
+      if (!['react', 'read', 'edit', 'delete'].includes(ctx.action)) throw new Error('Unsupported Teams Personal action');
       const { params, toolContext } = ctx;
       const destinations = [params.to, params.target, params.chatId, params.channelId]
         .filter(value => value !== undefined && value !== null);
@@ -31,6 +31,23 @@ export function createTeamsActions({ policy, currentConfig, getSkypeToken,
       const chatId = normalizedTarget(to);
       const assertDestination = () => { assertAuthority(); if (!targetAllowed(chatId)) throw new Error('Teams Personal destination no longer approved'); };
       const explicitId = params.messageId ?? params.message_id;
+      if (ctx.action !== 'react') {
+        if (!current || normalizedTarget(current) !== chatId) throw new Error('Teams message actions are limited to the current conversation');
+        if (explicitId !== undefined && !/^[1-9]\d{0,23}$/.test(String(explicitId))) throw new Error('A valid messageId is required');
+        if (['edit', 'delete'].includes(ctx.action) && !explicitId) throw new Error('Editing/deletion requires an explicit bot-owned messageId');
+        const text = params.message ?? params.text;
+        if (ctx.action === 'edit' && (typeof text !== 'string' || !text.trim())) throw new Error('Replacement message text is required');
+        if (ctx.dryRun) return jsonResult({ ok: true, dryRun: true, action: ctx.action, chatId, messageId: explicitId });
+        const guarded = createTeamsClient(async () => {
+          assertDestination(); const auth = await getSkypeToken(); assertDestination(); return checkCredential(auth, BOT);
+        });
+        let result;
+        if (ctx.action === 'read') result = explicitId ? await guarded.getMessage(chatId, String(explicitId))
+          : await guarded.getMessages(chatId, { limit: params.limit ?? 30, before: params.before, after: params.after });
+        if (ctx.action === 'edit') result = await guarded.editMessage(chatId, String(explicitId), text);
+        if (ctx.action === 'delete') result = await guarded.deleteMessage(chatId, String(explicitId));
+        assertDestination(); return jsonResult({ ok: true, channel: CHANNEL, chatId, ...(['edit', 'delete'].includes(ctx.action) ? result : { messages: result }) });
+      }
       // Never borrow the current message ID for another conversation or provider.
       const id = explicitId ?? (current && normalizedTarget(current) === chatId ? toolContext.currentMessageId : undefined);
       if ((typeof id !== 'string' && !(typeof id === 'number' && Number.isSafeInteger(id))) || !/^[1-9]\d{0,23}$/.test(String(id))) {

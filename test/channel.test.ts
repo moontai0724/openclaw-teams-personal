@@ -28,6 +28,7 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
   let typingOptions: any;
   let typingCleaned = false;
   let dispatchMode = 'reply';
+  const originalFile = Buffer.from('synthetic original document');
   const presenceStates: unknown[] = [];
   const abort = new AbortController();
   const typingCallbacks = { onReplyStart() {}, onIdle() {}, onCleanup() { typingCleaned = true; } };
@@ -35,6 +36,10 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
     getSkypeToken: async () => ({ token: 'not-used' }), hasSavedLogin: () => true,
     createTeamsClient: () => ({ whoAmI: async () => ({ mri: policy.BOT }),
       sendMessage: async (to: string, text: string) => { assert.equal(to, group); assert.equal(text, 'synthetic reply'); return { arrivalTime: '1794800000002' }; },
+      readAttachment: async (to: string, id: string, index: number) => {
+        assert.equal(to, group); assert.equal(id, '1794800000001'); assert.equal(index, 0);
+        return { bytes: originalFile, contentType: 'application/octet-stream', name: 'original.bin' };
+      },
     }),
     makePresence: () => ({ setConnected: (value: boolean) => presenceStates.push(value),
       stop: async () => { presenceStates.push('stopped'); } }),
@@ -43,11 +48,15 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
       status({ lastInboundAt: Date.now() });
       await admit({ conversationId: group, id: '1794800000001', text: 'current request',
         time: new Date().toISOString(), fromId: policy.SENDER, from: 'Synthetic user',
-        mentions: [{ mri: policy.BOT }], history, quote });
+        mentions: [{ mri: policy.BOT }], history, quote, attachments: [{ index: 0, kind: 'file', name: 'original.bin' }] });
       status({ connected: false });
     },
     sdk: {
       defineChannelPluginEntry: (value: unknown) => value,
+      saveMediaBuffer: async (bytes: Buffer, contentType: string) => {
+        assert.deepEqual(bytes, originalFile); assert.equal(contentType, 'application/octet-stream');
+        return { path: '/synthetic/original.bin' };
+      },
       createTypingCallbacks: (options: any) => { typingOptions = options; return typingCallbacks; },
       createChannelInboundEnvelopeBuilderAsync: async ({ cfg }: any) => {
         assert.equal(cfg.session.dmScope, 'per-channel-peer');
@@ -103,6 +112,8 @@ for (const group of ['19:synthetic@thread.v2', '19:synthetic-new@thread.v2', '19
       assert.equal(built.message.inboundHistory, undefined);
     }
     assert.equal(built.message.rawBody, 'current request');
+    assert.deepEqual(built.media, [{ path: '/synthetic/original.bin', contentType: 'application/octet-stream',
+      fileName: 'original.bin', kind: 'document', messageId: '1794800000001' }]);
     assert.equal(built.access.commands.authorized, false);
     assert.equal(built.route.dispatchSessionKey, `session:${group}`);
     assert.equal(built.conversation.id, group);

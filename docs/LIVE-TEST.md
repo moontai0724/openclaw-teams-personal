@@ -10,12 +10,12 @@ No discovery history is fetched for unapproved rooms. Real captures stay out of 
 
 Copy `config.example.json` into private, gitignored `local/scope.json`, fill the
 exact test group and bot MRI, then validate it. Supply the absolute path to the
-existing approved auth module; do not copy its store or pass a token as an argument.
+repository's `src/account.mjs` module; do not copy its store or pass a token as an argument.
 
 ```sh
 node src/cli.ts check --config local/scope.json
 node src/cli.ts listen --config local/scope.json \
-  --auth-module /ABSOLUTE/PATH/TO/EXISTING/auth.js \
+  --auth-module /ABSOLUTE/PATH/TO/REPOSITORY/src/account.mjs \
   --journal local/live.jsonl --duration 300
 ```
 
@@ -41,8 +41,8 @@ watermarks or the native ingress queue to resolve replay problems.
 ## Channel deployment bridge
 
 The independent channel implementation lives in `plugin/`. The bridge retains
-the installed SDK wiring, approved local policy and existing MIT upstream auth /
-outbound client. This is not yet a standalone npm-distributed plugin package.
+the host SDK wiring and approved local policy; authentication, chat/file requests
+and reaction keys are bundled from this repository. This is not yet a standalone npm-distributed plugin package.
 
 ```sh
 node scripts/deploy-bridge.mjs --target /ABSOLUTE/EXISTING/plugin/index.mjs --dry-run
@@ -124,7 +124,7 @@ sender guard and separate DM/group sessions must remain in force.
 
 ## Emoji reactions
 
-Use `message(action: "emoji-list")` to discover the installed client's supported
+Use `message(action: "emoji-list")` to discover the independent client's supported
 glyphs and keys. In the approved Teams conversation, use
 `message(action: "react", messageId: "<observed ID>", emoji: "👍")`.
 Delegated actions require the exact current Teams conversation and account;
@@ -155,9 +155,10 @@ journal whose activation fence includes existing authorized test messages; verif
 that repair on the second connection adds no duplicate event keys. This does not
 replace a real message sent during the gap or the native production queue check.
 
-Rollback: run the bridge script with the same target and `--restore`, then reload
-the plugin. Preserve both state files and the existing native queue. Do not
-uninstall the old upstream client or delete credentials during migration.
+Rollback: deploy a reviewed independent source revision with the same bridge
+script and reload only `teams-personal`. The former polling `--restore` path is
+retired. Preserve credential data, watermark, transport state and native ingress;
+never reset replay state or replay old approval/delivery records.
 
 ## Owner native-tag enrollment
 
@@ -236,3 +237,23 @@ native typing indicator appears while processing and disappears after completion
 (allow for Teams expiry). Correlate that real turn with typing start/stop logs,
 one normal reply and scoped platform readback. Do not fabricate an incoming event
 or replay the earlier direct API probe to substitute for production acceptance.
+
+
+## Independent client and original-file acceptance
+
+Before replacement, run offline gates and a bounded direct client check in the
+existing approved test room. Use only newly created bot messages for edit/delete.
+Read back message IDs and download the sent original to compare bytes; an upload
+receipt alone does not prove the delivered file. Keep captures in gitignored local/.
+The current direct run passed auth, history, send, edit, delete and byte-identical
+file round-trip; both newly created test messages were removed.
+
+After replacement, verify current generation, selected entry, authentication,
+registration and repair. Confirm the active bridge/bundle has no vendor imports.
+Retire the old runtime directory only after those checks; preserve a private
+rollback copy until native acceptance is complete. Send a fresh tag and original
+file in an approved Teams room, then ask the agent to return that original file.
+Check its actual downloaded bytes/filename, one model reply and correct destination.
+Test native read/edit/delete, reaction and typing separately. Do not manufacture
+an incoming user event or bypass the host's same-conversation action boundary.
+The requester's UI and native-tool acceptance remain distinct from direct API tests.
