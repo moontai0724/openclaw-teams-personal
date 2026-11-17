@@ -23,7 +23,7 @@ See [development](CONTRIBUTING.md) for checks and host integration tests, and
 | Context | Separate DM/group sessions, bounded recent history, native mentions and quoted replies |
 | Messages | Send/reply, same-chat reads, explicit bot-owned edit/delete |
 | Reactions | Emoji discovery, addition and selected-emoji removal with bot-own readback |
-| Files | Original upload/download, including images, through host media storage |
+| Media | Inline JPEG/PNG/GIF/WebP images, original-file upload/download and explicit document mode through host media storage |
 | Typing | Native controls refreshed every four seconds during addressed turns |
 | Presence | Available endpoint while connected, with a 60-second activity refresh |
 | Group access | Verified owner mentions allow one current request; explicit owner requests use a current-group allowlist tool |
@@ -88,10 +88,13 @@ Cross-chat search and account/group administration are outside this interface.
 
 Incoming attachments enter host media storage after chat admission. Up to five
 files are staged per turn; additional attachments can be downloaded explicitly
-with `teams_chat`. Outbound originals use host media access checks and native
-File.1 uploads, with a caption and file in the same message. Limits are 15 MiB per
-original file and 5 MiB for inline image downloads. Audio/video travel as files.
-The channel transfers bytes unchanged; document extraction, OCR and transcoding
+with `teams_chat`. Outbound media uses host access checks. JPEG, PNG, GIF and WebP
+are sent as native inline images, alone or with a caption in the same message.
+Use `message(action: "send", media: "…", asDocument: true)` to send an image as
+an original File.1 attachment; `forceDocument: true` is equivalent. Other formats,
+audio and video use file attachments. Limits are 15 MiB per original file and
+5 MiB per inline image in either direction. The channel uploads bytes unchanged;
+Teams may generate image display views. Document extraction, OCR and transcoding
 belong to host content tools.
 
 Typing stops refreshing on completion, silence, errors or cancellation, then

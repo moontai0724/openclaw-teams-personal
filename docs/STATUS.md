@@ -1,10 +1,34 @@
 # Verification status
 
-Runtime evidence cutoff: 2026-11-17, 12:42 Asia/Taipei. These are observed checkpoints,
-not a continuously refreshed health report. See [LIVE-TEST.md](LIVE-TEST.md) for
+Evidence checkpoints: 2026-11-17, through the 16:41 Asia/Taipei requester report.
+These are observed checks and attributed reports, not a continuously refreshed
+health report. See [LIVE-TEST.md](LIVE-TEST.md) for
 procedures and [README.md](../README.md) for current capabilities.
 
-## Source updates: not deployed
+## Source updates and activation status
+
+### Native inline images
+
+The source routes JPEG/PNG/GIF/WebP through `pish/image` uploads and AMSImage
+HTML, with an optional caption in one message. Explicit document mode and other
+media retain original File.1 transfer. Host media access checks and image metadata
+validation precede upload; scope and cancellation are rechecked before writes.
+Image-only/caption serialization, native upload routing, explicit originals,
+lost-response reconciliation, invalid metadata/size, failed uploads and scope
+revocation are covered by offline tests. All 86 host-enabled tests and syntax
+checks passed. The requester reported a successful image test at 16:41
+Asia/Taipei on 2026-11-17. This confirms the reported observation, not the
+specific loaded generation or rendering across every Teams client.
+
+The bridge and bundle were published to the selected integration on 2026-11-17
+at 16:25 Asia/Taipei. The turn-releasing reload failed during drain: three retained
+plugin work items did not settle within its 60-second budget, and replacement
+was not committed. Reconciliation confirmed Gateway generation 2 and the Teams
+channel ready/running/connected without an error. The selected bundle matches the
+isolated build (`b0c039603fdead17d85d053596410f3563e18f4c11d7ef8b3cd6eb68eb325fc8`).
+Account policy, watermark, endpoint and activation fences match the pre-reload
+baseline. These are published-file checks, not evidence that images are loaded.
+No Gateway restart, forced cleanup or unsolicited test send was performed.
 
 ### Additional DM allowlists
 

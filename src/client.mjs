@@ -122,6 +122,26 @@ export function createTeamsClient(getSkypeToken, { expectedAccount, assertChat =
     return publish(chat, body);
   }
   async function ownMessage(chat, id) { const raw = await rawMessage(chat, id); if (messageAuthor(raw) !== self) throw new Error('Only the bot’s own message may be modified'); return raw; }
+  async function uploadAttachment(chat, bytes, name, image = false) {
+    guard(chat);
+    const maxBytes = (image ? 5 : 15) * 1024 * 1024;
+    if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > maxBytes) throw new Error(`Attachment must contain 1 byte–${image ? 5 : 15} MiB`);
+    if (typeof name !== 'string' || !name.trim() || name.length > 200 || /[\x00-\x1f/\\]/.test(name)) throw new Error('Invalid attachment filename');
+    const upload = async (route, method, body, contentType) => {
+      const auth = await credential(); guard(chat);
+      return request(fetcher, new URL(`https://api.asm.skype.com/v1/objects/${route}`), {
+        method, headers: { Authorization: `skype_token ${auth.token}`, 'Content-Type': contentType,
+          'x-ms-client-version': '1415/1.0.0.2018090100' }, body,
+      }, signal);
+    };
+    const created = await readJson(await upload('', 'POST', JSON.stringify({ type: image ? 'pish/image' : 'sharing/file', filename: name,
+      ...(image ? { sharingMode: 'Inline' } : {}), permissions: { [chat]: ['read'] } }), 'application/json'));
+    guard(chat);
+    if (typeof created.id !== 'string' || !/^[a-zA-Z0-9._-]{1,200}$/.test(created.id)) throw new Error('Invalid Teams attachment object ID');
+    const uploaded = await upload(`${created.id}/content/${image ? 'imgpsh' : 'original'}`, 'PUT', bytes, 'application/octet-stream');
+    await uploaded.body?.cancel(); guard(chat);
+    return { id: created.id, base: `https://api.asm.skype.com/v1/objects/${created.id}` };
+  }
   return {
     async whoAmI() { const auth = await credential(); return { mri: self, region: auth.region }; },
     getRawMessage: rawMessage,
@@ -136,26 +156,24 @@ export function createTeamsClient(getSkypeToken, { expectedAccount, assertChat =
     },
     sendMessage,
     async sendFile(chat, bytes, name, caption = '') {
-      guard(chat);
-      if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > 15 * 1024 * 1024) throw new Error('File must contain 1 byte–15 MiB');
-      if (typeof name !== 'string' || !name.trim() || name.length > 200 || /[\x00-\x1f/\\]/.test(name)) throw new Error('Invalid attachment filename');
-      const upload = async (route, method, body, contentType) => {
-        const auth = await credential(); guard(chat);
-        return request(fetcher, new URL(`https://api.asm.skype.com/v1/objects/${route}`), {
-          method, headers: { Authorization: `skype_token ${auth.token}`, 'Content-Type': contentType,
-            'x-ms-client-version': '1415/1.0.0.2018090100' }, body,
-        }, signal);
-      };
-      const created = await readJson(await upload('', 'POST', JSON.stringify({ type: 'sharing/file', filename: name,
-        permissions: { [chat]: ['read'] } }), 'application/json'));
-      if (typeof created.id !== 'string' || !/^[a-zA-Z0-9._-]{1,200}$/.test(created.id)) throw new Error('Invalid Teams attachment object ID');
-      const uploaded = await upload(`${created.id}/content/original`, 'PUT', bytes, 'application/octet-stream');
-      await uploaded.body?.cancel();
-      const base = `https://api.asm.skype.com/v1/objects/${created.id}`;
-      // File.1 always uses the unmodified original view, including for pictures.
+      const text = caption ? composeText(caption) : { content: '', properties: {} };
+      const { id, base } = await uploadAttachment(chat, bytes, name);
+      // Explicit file mode preserves originals, including pictures.
       const content = `<URIObject type="File.1" uri="${base}"><Title>${escapeHtml(name)}</Title><Description></Description><OriginalName v="${escapeHtml(name)}"/><FileSize v="${bytes.length}"/></URIObject>`;
-      const body = { content: (caption ? composeText(caption).content : '') + content, contenttype: 'text',
-        messagetype: 'RichText/Media_GenericFile', imdisplayname: displayName, amsreferences: [created.id] };
+      const body = { ...text, content: text.content + content, contenttype: 'text',
+        messagetype: 'RichText/Media_GenericFile', imdisplayname: displayName, amsreferences: [id] };
+      return publish(chat, body);
+    },
+    async sendImage(chat, bytes, name, caption = '', { contentType, width, height } = {}) {
+      guard(chat);
+      if (!/^image\/(jpeg|png|gif|webp)$/.test(contentType) || !Number.isInteger(width) || !Number.isInteger(height)
+        || width < 1 || height < 1 || width * height > 25_000_000) throw new Error('Unsupported image type or dimensions');
+      const text = caption ? composeText(caption) : { content: '', properties: {} };
+      const { id, base } = await uploadAttachment(chat, bytes, name, true);
+      const scale = Math.min(1, 400 / width, 250 / height);
+      const image = `<p><img src="${base}/views/imgo" itemtype="http://schema.skype.com/AMSImage" itemscope="${contentType.slice(6)}" width="${width * scale}" height="${height * scale}" alt="${escapeHtml(name)}" id="x_${id}" itemid="${id}"></p>`;
+      const body = { ...text, content: text.content + image, contenttype: 'Text',
+        messagetype: 'RichText/Html', imdisplayname: displayName, amsreferences: [id] };
       return publish(chat, body);
     },
     replyToMessage: (chat, id, text) => sendMessage(chat, text, { replyTo: validId(id) }),

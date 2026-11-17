@@ -40,13 +40,26 @@ by its reserved `clientmessageid` before retrying. Edit/delete verifies bot
 authorship and reads back the affected message. Reaction actions use the bot's
 selected emoji key and verify its own resulting reaction.
 
-## Original files
+## Images and original files
 
 The web worker creates AMS objects with POST `v1/objects/`, a native object type,
 filename and permissions for the exact conversation. Bytes upload with PUT
 `v1/objects/{id}/content/original`. The channel uses `sharing/file` and a
 `RichText/Media_GenericFile` File.1 URIObject with `amsreferences`.
-Downloads use `/views/original`. Inline images use their ASM reference; OneDrive
+Downloads use `/views/original`.
+
+Inline images create `pish/image` objects with `sharingMode: "Inline"` and exact
+conversation read permissions. Bytes upload to `/content/imgpsh`. A single
+`RichText/Html` message contains an AMSImage `<img>` pointing to `/views/imgo`,
+with image subtype, aspect-preserving display dimensions and `amsreferences`.
+A caption precedes the image in that same message; pure images need no text.
+The host's existing image metadata service validates display dimensions.
+Supported inline types are JPEG, PNG, GIF and WebP, bounded to 5 MiB and 25 million
+pixels. Explicit document mode uses the original-file path instead.
+The deployed web client's [media constants and request constructors](https://tflteams.public.onecdn.static.microsoft/teams-modular-packages/hashed-assets/async-entry-b5ec7df30e99338c.js)
+were checked on 2026-11-17.
+
+Incoming inline images use their ASM reference; OneDrive
 references resolve via Graph. Graph credentials are not forwarded to a signed
 download host. Unexpected hosts, redirects and scope changes are rejected.
 Document-content conversion is outside transport.

@@ -58,7 +58,12 @@ const outbound = {deliveryMode:'direct', textChunkLimit:6000,
     context.assertDirectAdapterHandoff?.();
     const sender = createTeamsClient(async () => { context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.(); const credential = await getSkypeToken(); context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.(); return credential; },
       { assertChat: target => { context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.(); if (!destinationPolicy.targetAllowed(target)) throw new Error('Teams media scope revoked'); } });
-    const receipt = await sender.sendFile(to, Buffer.from(source.buffer), source.fileName || 'attachment', context.text || '');
+    const bytes = Buffer.from(source.buffer);
+    const name = source.fileName || 'attachment';
+    const inline = !context.forceDocument && /^image\/(jpeg|png|gif|webp)$/.test(source.contentType);
+    const receipt = inline
+      ? await sender.sendImage(to, bytes, name, context.text || '', { ...await sdk.getImageMetadata(bytes), contentType: source.contentType })
+      : await sender.sendFile(to, bytes, name, context.text || '');
     return { channel: CHANNEL, messageId: receipt.arrivalTime, chatId: to };
   },
 };
@@ -72,7 +77,7 @@ async function deliverPayload(to, payload, assertAuthority, destinationPolicy = 
     for (let index = 0; index < files.length; index++) {
       assertAuthority();
       completed.add(await outbound.sendMedia({ cfg: runtime.config.current(), to, assertDirectAdapterHandoff: assertAuthority,
-        text: index === 0 ? payload.text || '' : '', mediaUrl: files[index] }, destinationPolicy));
+        text: index === 0 ? payload.text || '' : '', mediaUrl: files[index], forceDocument: payload.forceDocument }, destinationPolicy));
     }
     return completed.result();
   } catch (error) { throw completed.partialError(error); }

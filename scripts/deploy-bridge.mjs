@@ -24,13 +24,14 @@ import { createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, create
 import { jsonResult } from 'openclaw/plugin-sdk/channel-actions';
 import { saveMediaBuffer } from 'openclaw/plugin-sdk/media-store';
 import { loadOutboundMediaFromUrl } from 'openclaw/plugin-sdk/outbound-media';
+import { getImageMetadata } from 'openclaw/plugin-sdk/media-runtime';
 import * as policy from './policy.mjs';
 import { createTeamsChannel } from './realtime.mjs';
 import { enrollOwnerGroup as sharedEnroll } from '../../../maintenance/owner-group-enrollment/enrollment.mjs';
 export default createTeamsChannel({ policy, sharedEnroll,
   sdk: { defineChannelPluginEntry, createChannelInboundEnvelopeBuilderAsync, dispatchChannelInboundTurn,
     createChannelIngressMonitor, bindIngressLifecycleToReplyOptions, createTypingCallbacks, createChannelMessageAdapterFromOutbound,
-    jsonResult, saveMediaBuffer, loadOutboundMediaFromUrl, createChannelDeliveryAccumulator } });
+    jsonResult, saveMediaBuffer, loadOutboundMediaFromUrl, getImageMetadata, createChannelDeliveryAccumulator } });
 `;
   if (values['dry-run']) process.stdout.write(source);
   else {

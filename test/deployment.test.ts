@@ -34,7 +34,10 @@ test('deployment declares chat and group-management tools without discarding oth
       assert.equal(new RegExp(dms.propertyNames.pattern).test('19:uni01_synthetic@thread.v2'), true);
       assert.equal(new RegExp(dms.propertyNames.pattern).test('19:synthetic-group@thread.v2'), false);
       assert.equal(new RegExp(dms.additionalProperties.properties.allowFrom.items.pattern).test('*'), false);
-      assert.match(await readFile(join(plugin, 'index.mjs'), 'utf8'), /createTeamsChannel/);
+      const bridge = await readFile(join(plugin, 'index.mjs'), 'utf8');
+      assert.match(bridge, /createTeamsChannel/);
+      assert.match(bridge, /import \{ getImageMetadata \} from 'openclaw\/plugin-sdk\/media-runtime'/);
+      assert.match(bridge, /loadOutboundMediaFromUrl, getImageMetadata, createChannelDeliveryAccumulator/);
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -109,6 +109,15 @@ message readback after each mutation. Send an original file, download it and
 compare bytes and filename; then remove the test messages when authorized.
 An ambiguous write requires reconciliation before any retry.
 
+For inline images, send one image-only message and one caption-plus-image message
+in the approved test chat. Read back each exact message: `RichText/Html`, one
+AMSImage `<img>`, `/views/imgo` and one AMS reference, with no duplicate caption
+message. Verify requester-side rendering, separately for personal and work/school
+clients. A sender-side card or successful API download does not prove recipient
+rendering. With `asDocument: true` (or `forceDocument: true`), verify a File.1
+attachment and byte-identical original download instead. Exercise supported
+image formats and reject oversize or invalid image metadata before upload.
+
 For native tool acceptance, send an original file with a fresh bot tag in an
 approved Teams chat. Ask the agent to list/read it with `teams_chat` and return
 the original. Verify one reply, the correct destination and downloaded bytes.
@@ -118,7 +127,7 @@ requests from a different channel are rejected before adapter handoff.
 
 The channel stages at most five attachments per turn. Additional files can be
 requested with `teams_chat(action: "read-file")`. Original files are limited to
-15 MiB, and inline image downloads to 5 MiB. Content extraction and transcoding
+15 MiB, and inline image uploads/downloads to 5 MiB. Content extraction and transcoding
 belong to host tools. A read leaves messages unread; use `mark-read` only on an
 explicit request and verify the resulting horizon.
 

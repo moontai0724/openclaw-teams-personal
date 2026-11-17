@@ -105,3 +105,64 @@ test('original-file send uploads byte-identically, grants only this chat and doe
   await assert.rejects(client.sendFile(chat, original, '../unsafe.bin'), /filename/);
   assert.equal(calls.length, 3);
 });
+
+for (const caption of ['', 'Hi @[User](8:live:other) <caption>']) test(`inline image uses native AMS markup in one message: ${caption ? 'caption' : 'image only'}`, async () => {
+  const original = Buffer.from('synthetic image bytes');
+  const calls: any[] = [];
+  let published: any;
+  const client = createTeamsClient(auth, { expectedAccount: bot,
+    fetcher: async (url: URL, options: any) => {
+      calls.push([url, options]);
+      if (url.hostname === 'api.asm.skype.com' && options.method === 'POST') {
+        assert.deepEqual(JSON.parse(options.body), { type: 'pish/image', filename: 'a&b.png', sharingMode: 'Inline', permissions: { [chat]: ['read'] } });
+        return Response.json({ id: 'synthetic-image' });
+      }
+      if (options.method === 'PUT') {
+        assert.match(url.pathname, /\/content\/imgpsh$/); assert.deepEqual(options.body, original);
+        return new Response(null, { status: 201 });
+      }
+      if (options.method === 'POST') { published = JSON.parse(options.body); throw new Error('response lost'); }
+      return Response.json({ messages: [{ ...published, id, from: bot, conversationid: chat }] });
+    },
+  });
+  const receipt = await client.sendImage(chat, original, 'a&b.png', caption, { contentType: 'image/png', width: 800, height: 400 });
+  assert.equal(receipt.arrivalTime, id);
+  assert.equal(calls.length, 4); // One create, upload, publish and reconciliation read; never a second publish.
+  assert.equal(published.messagetype, 'RichText/Html');
+  assert.match(published.content, /<img src="https:\/\/api\.asm\.skype\.com\/v1\/objects\/synthetic-image\/views\/imgo"/);
+  assert.match(published.content, /itemtype="http:\/\/schema\.skype\.com\/AMSImage" itemscope="png" width="400" height="200"/);
+  assert.match(published.content, /alt="a&amp;b.png"/);
+  assert.doesNotMatch(published.content, /URIObject|File\.1/);
+  assert.deepEqual(published.amsreferences, ['synthetic-image']);
+  if (caption) {
+    assert.match(published.content, /&lt;caption&gt;<\/p><p><img/);
+    assert.equal(JSON.parse(published.properties.mentions)[0].mri, '8:live:other');
+  } else assert.match(published.content, /^<p><img/);
+});
+
+test('image validation precedes uploads, and revoked scope or failed uploads never publish', async () => {
+  let calls = 0, revoked = false, failedUpload = false;
+  const client = createTeamsClient(auth, { expectedAccount: bot, assertChat: () => { if (revoked) throw new Error('revoked'); },
+    fetcher: async (_url: URL, options: any) => {
+      calls++;
+      if (options.method === 'PUT') { assert.equal(failedUpload, true); return new Response(null, { status: 500 }); }
+      assert.equal(options.method, 'POST');
+      if (!failedUpload) revoked = true;
+      return Response.json({ id: 'synthetic-image' });
+    },
+  });
+  const bytes = Buffer.from('synthetic image');
+  const meta = { contentType: 'image/jpeg', width: 800, height: 400 };
+  for (const bad of [{ ...meta, width: 0 }, { ...meta, height: NaN }, { ...meta, width: 100000 }, { ...meta, contentType: 'image/svg+xml' }]) {
+    await assert.rejects(client.sendImage(chat, bytes, 'a.jpg', '', bad), /Unsupported/);
+  }
+  await assert.rejects(client.sendImage(chat, Buffer.alloc(5 * 1024 * 1024 + 1), 'a.jpg', '', meta), /5 MiB/);
+  await assert.rejects(client.sendImage(chat, bytes, '../a.jpg', '', meta), /filename/);
+  await assert.rejects(client.sendImage(chat, bytes, 'a.jpg', 'x'.repeat(20001), meta), /20000/);
+  assert.equal(calls, 0);
+  await assert.rejects(client.sendImage(chat, bytes, 'a.jpg', '', meta), /revoked/);
+  assert.equal(calls, 1);
+  revoked = false; failedUpload = true;
+  await assert.rejects(client.sendImage(chat, bytes, 'a.jpg', '', meta), /500/);
+  assert.equal(calls, 3);
+});
