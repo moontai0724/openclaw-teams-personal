@@ -180,5 +180,23 @@ current Teams turn config object, never persisted as a global preference.
 test group received HTTP 201 for the initial control and its four-second refresh.
 Cleanup stopped the loop. Readback retained the same 11 text messages and three
 bot replies; persisted config and legacy watermark digests were unchanged.
-This is direct API/SDK evidence, not the production model lifecycle or the
-requester's visible Teams UI. Those still require a fresh addressed Teams turn.
+This establishes direct API/SDK acceptance, not the production model lifecycle
+or the requester's visible Teams UI.
+
+2026-11-17 09:12:42 Asia/Taipei: commit `03b7c4c` loaded without a Gateway restart,
+using the existing bridge (runtime generation 3, `restartRequired: false`, source
+digest `e98547b8a851b7fa90e11e17d0edb6e2b691ff03c31008f82a00ef4ab5a78a52`).
+Authentication/registration completed by 09:12:44 and scoped recovery by 09:12:46.
+Channel status reports running/connected/ready, no pending restart and no last
+error. The retained-work warning required no second reload.
+At 09:14:17, readback confirmed the same 11 messages / three original bot replies,
+zero bot replies after reload, unchanged config/manifest/watermark and unchanged
+endpoint, bot identity and activation fences. Deployed bundle and bridge hashes
+match the handoff. No new text or typing control was sent by this readback.
+
+Requester action still required: in an already approved Teams group, send a fresh
+native bot tag asking for a reply that takes a few seconds. Observe whether the
+native typing indicator appears while processing and disappears after completion
+(allow for Teams expiry). Correlate that real turn with typing start/stop logs,
+one normal reply and scoped platform readback. Do not fabricate an incoming event
+or replay the earlier direct API probe to substitute for production acceptance.

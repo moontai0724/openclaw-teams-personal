@@ -12,8 +12,25 @@ All 47 offline tests pass with both host enrollment and typing integrations
 enabled, along with syntax checks. At 09:09 Asia/Taipei a bounded direct-handler
 run in the existing test group received two HTTP 201 controls (initial + refresh).
 Text history remained at 11 messages / three bot replies; persisted config and
-legacy watermark digests were unchanged. Deployment is pending. Production
-model/UI typing acceptance still requires a fresh addressed Teams turn.
+legacy watermark digests were unchanged.
+
+Commit `03b7c4c` loaded at 09:12:42 Asia/Taipei without a Gateway restart. The
+reload receipt reports `ok: true`, `restartRequired: false`, runtime generation 3
+and source digest
+`e98547b8a851b7fa90e11e17d0edb6e2b691ff03c31008f82a00ef4ab5a78a52`.
+The selected entry remains the existing deployment bridge. Authentication and
+registration completed by 09:12:44, followed by scoped recovery by 09:12:46.
+Channel status is running/connected/ready with `restartPending: false` and
+`lastError: null`. The retained-work warning resolved before successful replacement;
+do not repeat the reload.
+
+Readback at 09:14:17 confirms the same 11 test-group messages and three original
+bot replies, with zero bot replies after reload. Config, manifest, legacy
+watermark, endpoint, bot identity and activation fences match the pre-typing
+snapshot; published bridge and bundle hashes match the deployment handoff.
+This verifies loaded runtime health and existing-traffic recovery without duplicate
+replies. Production model/UI typing acceptance still requires a fresh addressed
+Teams turn and requester observation of the native indicator and its expiry.
 
 ## Previous deployed checkpoint
 
@@ -219,8 +236,10 @@ was subsequently authorized in message 254; its current status is recorded above
    in Telegram message 254; no separate additional tool-log audit was performed.
 
 Live acceptance requires real Teams observations and is not proved by mocks.
-Next live acceptance is owner-tag enrollment in a genuinely unlisted group,
-followed by another member's tag. See the exact procedure in LIVE-TEST.md.
+Typing UI acceptance requires a fresh native tag in an already approved Teams
+group and requester observation during processing and after completion. Owner-tag
+enrollment separately requires a genuinely unlisted group, followed by another
+member's tag. See the exact procedures in LIVE-TEST.md.
 A controlled missed-message test still needs a coordinated real message during
 the reported connection gap.
 A run without a real message during its gap cannot prove recovery of missed
