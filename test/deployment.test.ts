@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-test('deployment declares the chat tool without discarding other manifest contracts', async () => {
+test('deployment declares chat and group-management tools without discarding other contracts', async () => {
   const root = await mkdtemp(join(tmpdir(), 'teams-deployment-'));
   try {
     const plugin = join(root, 'integrations/teams-personal/plugin');
@@ -25,7 +25,7 @@ test('deployment declares the chat tool without discarding other manifest contra
       const deployed = spawnSync(process.execPath, ['scripts/deploy-bridge.mjs', '--target', join(plugin, 'index.mjs'), '--esbuild', bundler], { encoding: 'utf8' });
       assert.equal(deployed.status, 0, deployed.stderr);
       const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-      assert.deepEqual(manifest.contracts.tools, ['existing_tool', 'teams_chat']);
+      assert.deepEqual(manifest.contracts.tools, ['existing_tool', 'teams_chat', 'teams_group_access']);
       assert.deepEqual(manifest.contracts.services, ['existing_service']);
       assert.deepEqual(manifest.channelConfigs['teams-personal'].schema.properties.enabled, { type: 'boolean' });
       const dms = manifest.channelConfigs['teams-personal'].schema.properties.dms;

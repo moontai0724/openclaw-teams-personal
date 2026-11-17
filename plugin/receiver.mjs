@@ -53,7 +53,7 @@ export function channelMessage(raw, type, chat, bot) {
 }
 
 export async function runReceiver({ authProvider, policy, stateDir, admit, assertAuthority, status, log, signal,
-  enroll, fetcher = fetch, makeSocket = url => new WebSocket(url) }) {
+  fetcher = fetch, makeSocket = url => new WebSocket(url) }) {
   const { CHAT, GROUP, BOT, SENDER, admitted, groupAdmitted } = policy;
   const groups = () => policy.GROUPS ?? [GROUP];
   const dms = () => policy.DM_CHATS ?? [CHAT];
@@ -82,7 +82,7 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
       const direct = dms().includes(chat);
       const entry = direct ? policy.dmEntry?.(chat) : policy.groupEntry?.(chat);
       const trigger = entry?.activationId;
-      const since = (trigger || direct) ? entry?.activatedAt : Date.now();
+      const since = entry?.activatedAt ?? Date.now();
       if (!Number.isFinite(since) || trigger && !/^[1-9]\d{0,23}$/.test(trigger)) throw new PocError('Invalid chat activation fence');
       state.chats[chat] = { baseline: trigger ? String(BigInt(trigger) - 1n) : String(since), since, repairedThrough: since };
     }
@@ -133,12 +133,16 @@ export async function runReceiver({ authProvider, policy, stateDir, admit, asser
     if (!chats().includes(chat)) {
       // Account-wide push facts are checked before the unknown-room rejection;
       // ordinary traffic is neither cached nor logged nor sent to the model.
-      if (!enroll || event.type !== 'NewMessage' || !isGroupId(chat)) return;
+      if (event.type !== 'NewMessage' || !isGroupId(chat)) return;
       const candidate = channelMessage(raw, event.type, chat, BOT);
-      if (!candidate || !await enroll(candidate, startedAt) || !groups().includes(chat)) return;
-      activate(chat);
-      await save();
-      log('owner_group_enrolled', { chat, id: candidate.id });
+      if (!candidate || !policy.ownerMentionAllowed?.(candidate, startedAt)) return;
+      assertAuthority();
+      // No room persistence, context cache, discovery history or transport cursor.
+      // Native ingress deduplicates this exact event; every later event is gated anew.
+      await admit(candidate);
+      log('owner_mention_once', { chat, id: candidate.id });
+      status({ lastInboundAt: Date.now() });
+      return;
     }
     if (chat !== CHAT && !state.chats[chat]) { activate(chat); await save(); }
     const previous = context.find(chat, raw.id);

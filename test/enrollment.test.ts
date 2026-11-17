@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createScopedPolicy, createOwnerEnrollment } from '../plugin/enrollment.mjs';
+import { createScopedPolicy, createGroupAccessTool } from '../plugin/enrollment.mjs';
 
 const oldGroup = '19:synthetic@thread.v2';
 const newGroup = '19:synthetic-new@thread.v2';
@@ -41,140 +41,144 @@ test('dynamic room policy honors disabled entries/revocation, preserves DM and d
   assert.equal(policy.targetAllowed(dm), true);
 });
 
-test('ordinary, other-user, edited, forwarded, reply, command, old and DM traffic never invokes enrollment/config I/O', async () => {
-  const enroll = createOwnerEnrollment({ policy: base,
-    current: () => { throw Error('unexpected config read'); }, mutate: () => { throw Error('unexpected write'); },
-    sharedEnroll: () => { throw Error('unexpected core call'); }, assertAuthority() {},
-  });
-  for (const patch of [ { mentions: [] }, { fromId: '8:orgid:other' }, { edited: true }, { deleted: true },
-    { forwarded: true }, { replyTo: {} }, { text: '/command' }, { isMine: true },
-    { time: '2026-11-15T00:00:00Z' }, { conversationId: dm }, { conversationId: '__proto__' } ]) {
-    assert.equal(await enroll({ ...msg(), ...patch }, startedAt), false);
+
+test('owner native mentions allow only their exact turn, never persistent targets or other members', () => {
+  const cfg: any = config();
+  const policy = createScopedPolicy(base, () => cfg);
+  const before = structuredClone(cfg);
+  assert.equal(policy.ownerMentionAllowed(msg(), startedAt), true);
+  assert.equal(policy.groupAdmitted(msg(), startedAt), true);
+  assert.equal(policy.targetAllowed(newGroup), false);
+  assert.deepEqual(policy.GROUPS, [oldGroup]);
+  for (const patch of [{ fromId: '8:orgid:member' }, { mentions: [] }, { edited: true }, { deleted: true },
+    { forwarded: true }, { isMine: true }, { conversationId: dm }, { time: '2026-11-15T00:00:00Z' }]) {
+    assert.equal(policy.groupAdmitted({ ...msg(), ...patch }, startedAt), false);
   }
-});
-
-test('adapter persists only the shared room result and trigger fence, without granting global ownership', async () => {
-  const cfg: any = config();
-  const originalOwners = structuredClone(cfg.commands);
-  const other = structuredClone(cfg.channels.other);
-  let mutations = 0;
-  const enroll = createOwnerEnrollment({ policy: base, current: () => cfg, assertAuthority() {},
-    sharedEnroll: async (facts: any, deps: any) => {
-      const projected = deps.current();
-      assert.equal(facts.senderId, owner);
-      assert.equal(facts.explicitMention, true);
-      assert.deepEqual(projected.commands.ownerAllowFrom, [`${channel}:${owner}`]);
-      const receipt = await deps.mutate({ afterWrite: { mode: 'auto' },
-        mutate: (draft: any) => { draft.channels[channel].groups[newGroup] = { requireMention: true, allowFrom: ['*'] }; return true; },
-        writeOptions: { assertCurrent() {} },
-      });
-      return { changed: receipt.result };
-    },
-    mutate: async (options: any) => { mutations++; options.writeOptions.assertCurrent(); return { result: options.mutate(cfg) }; },
-  });
-  assert.equal(await enroll(msg(), startedAt), true);
-  assert.equal(mutations, 1);
-  assert.deepEqual(cfg.commands, originalOwners);
-  assert.deepEqual(cfg.channels.other, other);
-  assert.deepEqual(cfg.channels[channel].groups[newGroup], { requireMention: true, allowFrom: ['*'],
-    activationId: msg().id, activatedAt: Date.parse(msg().time) });
-});
-
-const corePath = process.env.TEAMS_ENROLLMENT_CORE;
-test('host shared core: fail closed until identity confirmed; disabled rooms, repeats and owner revocation remain unchanged', { skip: !corePath }, async () => {
-  const { enrollOwnerGroup } = await import(corePath!);
-  const cfg: any = config();
-  let writes = 0;
-  let revoke = false;
-  const enroll = createOwnerEnrollment({ policy: base, current: () => cfg, sharedEnroll: enrollOwnerGroup, assertAuthority() {},
-    mutate: async (options: any) => {
-      if (revoke) delete cfg.channels[channel].enrollmentOwnerId;
-      options.writeOptions.assertCurrent();
-      const result = options.mutate(cfg); writes++; return { result };
-    },
-  });
-  delete cfg.channels[channel].enrollmentOwnerId;
-  assert.equal(await enroll(msg(), startedAt), false);
-  assert.equal(writes, 0);
-  cfg.channels[channel].enrollmentOwnerId = owner;
+  assert.deepEqual(cfg, before);
   cfg.channels[channel].groups[newGroup] = { enabled: false };
-  assert.equal(await enroll(msg(), startedAt), false);
+  assert.equal(policy.groupAdmitted(msg(), startedAt), false);
   delete cfg.channels[channel].groups[newGroup];
   cfg.channels[channel].groupPolicy = 'disabled';
-  assert.equal(await enroll(msg(), startedAt), false);
+  assert.equal(policy.groupAdmitted(msg(), startedAt), false);
   cfg.channels[channel].groupPolicy = 'allowlist';
-  revoke = true;
-  await assert.rejects(enroll(msg(), startedAt), /authorization changed/);
-  assert.equal(writes, 0);
-  revoke = false;
-  cfg.channels[channel].enrollmentOwnerId = owner;
-  assert.equal(await enroll(msg(), startedAt), true);
-  assert.equal(await enroll(msg(), startedAt), false);
-  assert.equal(writes, 1);
-  assert.deepEqual(cfg.commands.ownerAllowFrom, ['telegram:synthetic-owner']);
+  delete cfg.channels[channel].enrollmentOwnerId;
+  assert.equal(policy.groupAdmitted(msg(), startedAt), false);
 });
 
-test('persisted enrollment waits for the immutable published snapshot, without admitting the draft', async () => {
-  let published: any = config();
-  const policy = createScopedPolicy(base, () => published);
-  let persisted: any;
-  let release!: () => void;
-  const written = new Promise<void>(resolve => { release = resolve; });
-  const enroll = createOwnerEnrollment({ policy: base, current: () => published, assertAuthority() {},
-    sharedEnroll: async (_facts: any, deps: any) => ({ changed: (await deps.mutate({
-      mutate: (draft: any) => { draft.channels[channel].groups[newGroup] = { requireMention: true, allowFrom: ['*'] }; return true; },
-    })).result }),
+// A controlled core isolates the host mutation contract; host-core integration
+// below exercises its real owner policy with the same adapter/tool path.
+const fakeCore = async (_facts: any, deps: any) => {
+  if (deps.current().channels[channel].groups[newGroup]) return { changed: false };
+  return { changed: (await deps.mutate({
+    mutate: (cfg: any) => { cfg.channels[channel].groups[newGroup] = { requireMention: true, allowFrom: ['*'] }; return true; },
+  })).result };
+};
+function setup(sharedEnroll = fakeCore) {
+  let cfg: any = config(), active = true, writes = 0;
+  const context: any = { messageChannel: channel, nativeChannelId: newGroup, requesterSenderId: owner,
+    assertInvocationCurrent() { if (!active) throw new Error('invocation expired'); } };
+  const deps: any = { policy: base, current: () => cfg, sharedEnroll, jsonResult: (value: any) => value,
     mutate: async (options: any) => {
-      persisted = structuredClone(published);
       options.writeOptions.assertCurrent();
-      const result = options.mutate(persisted);
-      release();
-      return { result };
+      const draft = structuredClone(cfg);
+      const result = options.mutate(draft); writes++; cfg = draft; return { result };
     },
-  });
-  let settled = false;
-  const pending = enroll(msg(), startedAt).then(result => { settled = true; return result; });
-  await written;
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(settled, false);
-  assert.equal(policy.groupAllowed(newGroup), false);
-  assert.equal(policy.groupAdmitted(msg(), 0), false);
-  assert.equal(policy.targetAllowed(newGroup), false);
-  assert.equal(persisted.channels[channel].groups[newGroup].activationId, msg().id);
-  published = persisted;
-  assert.equal(await pending, true);
-  assert.equal(policy.groupAllowed(newGroup), true);
-  assert.equal(policy.groupAdmitted(msg(), 0), true);
-  assert.equal(policy.targetAllowed(newGroup), true);
+  };
+  return { context, deps, config: () => cfg, publish: (next: any) => { cfg = next; },
+    expire: () => { active = false; }, writes: () => writes };
+}
+const action = { action: 'allow-current-group' };
+test('only the trusted current-group owner can discover the management tool', () => {
+  const f = setup();
+  assert.equal(createGroupAccessTool(f.context, f.deps)!.name, 'teams_group_access');
+  for (const patch of [{ messageChannel: 'telegram' }, { requesterSenderId: '8:orgid:member' },
+    { requesterSenderId: undefined, senderIsOwner: true }, { nativeChannelId: dm }, { agentAccountId: 'other' },
+    { assertInvocationCurrent: undefined }]) {
+    assert.equal(createGroupAccessTool({ ...f.context, ...patch }, f.deps), null);
+  }
+  f.config().channels[channel].groups[newGroup] = { enabled: false };
+  assert.equal(createGroupAccessTool(f.context, f.deps), null);
+});
+test('explicit tool persists one exact group with approval-time fence, preserving owners, DMs and other groups', async () => {
+  const f = setup();
+  const before = structuredClone(f.config());
+  const tool = createGroupAccessTool(f.context, f.deps)!;
+  assert.deepEqual(tool.parameters.properties.action.enum, ['allow-current-group']);
+  await assert.rejects(tool.execute('x', { ...action, groupId: oldGroup }), /Only the current/);
+  await assert.rejects(tool.execute('x', { action: 'other' }), /Only the current/);
+  assert.equal(f.writes(), 0);
+  const result = await tool.execute('x', action);
+  assert.deepEqual(result, { changed: true, active: true, chatId: newGroup });
+  const entry = f.config().channels[channel].groups[newGroup];
+  assert.equal(entry.requireMention, true); assert.deepEqual(entry.allowFrom, ['*']);
+  assert.equal(Number.isFinite(entry.activatedAt), true); assert.equal(entry.activationId, undefined);
+  assert.deepEqual(f.config().commands, before.commands);
+  assert.deepEqual(f.config().channels.other, before.channels.other);
+  assert.deepEqual(f.config().channels[channel].groups[oldGroup], before.channels[channel].groups[oldGroup]);
+  assert.equal((await tool.execute('x', action)).changed, false);
+  assert.equal(f.writes(), 1);
+  f.expire(); await assert.rejects(tool.execute('x', action), /expired/);
 });
 
-for (const outcome of ['owner-revoked', 'room-disabled', 'superseded', 'abort', 'timeout']) {
-  test(`unpublished enrollment fails closed on ${outcome}`, async () => {
-    let published: any = config();
-    const controller = new AbortController();
-    const enroll = createOwnerEnrollment({ policy: base, current: () => published, assertAuthority() {},
-      signal: controller.signal, activationTimeoutMs: 40,
-      sharedEnroll: async (_facts: any, deps: any) => ({ changed: (await deps.mutate({
-        mutate: (draft: any) => { draft.channels[channel].groups[newGroup] = { requireMention: true, allowFrom: ['*'] }; return true; },
-      })).result }),
-      mutate: async (options: any) => {
-        const draft = structuredClone(published);
-        options.writeOptions.assertCurrent();
-        const result = options.mutate(draft);
-        setImmediate(() => {
-          const next = structuredClone(published);
-          if (outcome === 'owner-revoked') delete next.channels[channel].enrollmentOwnerId;
-          if (outcome === 'room-disabled') next.channels[channel].groups[newGroup] = { enabled: false };
-          if (outcome === 'superseded') next.channels[channel].groups[newGroup] = {
-            ...draft.channels[channel].groups[newGroup], activationId: '1794800000999' };
-          if (outcome === 'abort') controller.abort();
-          published = next;
-        });
-        return { result };
-      },
-    });
-    await assert.rejects(enroll(msg(), startedAt), outcome === 'abort' ? { name: 'AbortError' } :
-      outcome === 'timeout' ? /persisted but runtime activation timed out/ : /authorization changed|revoked or superseded/);
-    assert.equal(createScopedPolicy(base, () => published).groupAllowed(newGroup), outcome === 'superseded');
+test('tool waits for published policy and never authorizes from its persisted draft', async () => {
+  const f = setup(); let persisted: any;
+  let written!: () => void;
+  const ready = new Promise<void>(resolve => { written = resolve; });
+  f.deps.mutate = async (options: any) => {
+    options.writeOptions.assertCurrent();
+    persisted = structuredClone(f.config());
+    const result = options.mutate(persisted); written(); return { result };
+  };
+  const tool = createGroupAccessTool(f.context, f.deps)!;
+  let settled = false;
+  const pending = tool.execute('x', action).then((result: any) => { settled = true; return result; });
+  await ready; await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal(createScopedPolicy(base, f.deps.current).targetAllowed(newGroup), false);
+  f.publish(persisted);
+  assert.equal((await pending).active, true);
+});
+
+for (const outcome of ['owner-revoked', 'room-disabled', 'superseded', 'abort', 'timeout', 'invocation-expired']) {
+  test(`management tool fails closed on ${outcome} during publication`, async () => {
+    const f = setup(); const controller = new AbortController(); f.deps.activationTimeoutMs = 40;
+    f.deps.mutate = async (options: any) => {
+      options.writeOptions.assertCurrent(); const draft = structuredClone(f.config());
+      const result = options.mutate(draft);
+      setImmediate(() => {
+        const next = structuredClone(f.config());
+        if (outcome === 'owner-revoked') delete next.channels[channel].enrollmentOwnerId;
+        if (outcome === 'room-disabled') next.channels[channel].groups[newGroup] = { enabled: false };
+        if (outcome === 'superseded') next.channels[channel].groups[newGroup] = { ...draft.channels[channel].groups[newGroup], activatedAt: 1 };
+        if (outcome === 'abort') controller.abort();
+        if (outcome === 'invocation-expired') f.expire();
+        f.publish(next);
+      });
+      return { result };
+    };
+    const pending = createGroupAccessTool(f.context, f.deps)!.execute('x', action, controller.signal);
+    if (outcome === 'timeout') assert.equal((await pending).active, false);
+    else await assert.rejects(pending, outcome === 'abort' ? { name: 'AbortError' } : /authorization|superseded|expired/);
   });
 }
+
+test('persisted draft owner revocation blocks mutation even while published owner remains unchanged', async () => {
+  const f = setup();
+  f.deps.mutate = async (options: any) => {
+    const draft = structuredClone(f.config()); delete draft.channels[channel].enrollmentOwnerId;
+    return { result: options.mutate(draft) };
+  };
+  await assert.rejects(createGroupAccessTool(f.context, f.deps)!.execute('x', action), /authorization changed in configuration/);
+});
+const corePath = process.env.TEAMS_ENROLLMENT_CORE;
+test('real shared core is called only by the explicit owner tool, not ordinary mention admission', { skip: !corePath }, async () => {
+  const { enrollOwnerGroup } = await import(corePath!);
+  const f = setup(enrollOwnerGroup);
+  const policy = createScopedPolicy(base, f.deps.current);
+  assert.equal(policy.groupAdmitted(msg(), startedAt), true); assert.equal(f.writes(), 0);
+  assert.equal((await createGroupAccessTool(f.context, f.deps)!.execute('x', action)).changed, true);
+  assert.equal(f.writes(), 1);
+  assert.equal((await createGroupAccessTool(f.context, f.deps)!.execute('x', action)).changed, false);
+  assert.equal(f.writes(), 1);
+  assert.deepEqual(f.config().commands.ownerAllowFrom, ['telegram:synthetic-owner']);
+});

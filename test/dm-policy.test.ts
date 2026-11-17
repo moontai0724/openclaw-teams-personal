@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createScopedPolicy, createOwnerEnrollment } from '../plugin/enrollment.mjs';
+import { createScopedPolicy, createGroupAccessTool } from '../plugin/enrollment.mjs';
 
 const channel = 'teams-personal';
 const primary = '19:uni01_owner@thread.v2';
@@ -66,12 +66,10 @@ test('malformed, wildcard, missing-fence and disabled DM entries fail closed', (
 test('DM revocation and peer changes apply immediately without granting group enrollment', async () => {
   const { config, policy } = setup();
   const owners = structuredClone(config.commands);
-  const enroll = createOwnerEnrollment({ policy: base, current: () => config,
+  assert.equal(createGroupAccessTool({ messageChannel: channel, nativeChannelId: '19:synthetic-new@thread.v2',
+    requesterSenderId: member, assertInvocationCurrent() {} }, { policy: base, current: () => config,
     sharedEnroll: () => { throw new Error('Ordinary DM peer must not enroll groups'); },
-    mutate: () => { throw new Error('Unexpected config write'); }, assertAuthority() {},
-  });
-  assert.equal(await enroll({ ...message(), conversationId: '19:synthetic-new@thread.v2',
-    mentions: [{ mri: bot }] }, activation), false);
+    mutate: () => { throw new Error('Unexpected config write'); } }), null);
   config.channels[channel].dms[dm].allowFrom = [owner];
   assert.equal(policy.admitted(message(), 0), false);
   assert.deepEqual(policy.dmAllowFrom(dm), [owner]);

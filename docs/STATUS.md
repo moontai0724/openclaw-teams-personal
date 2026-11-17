@@ -11,7 +11,7 @@ procedures and [README.md](../README.md) for current capabilities.
 The source supports exact additional conversation/sender pairs in `dms`, with
 per-chat routing/session isolation, activation fences and live revocation checks.
 The deployment manifest includes the optional map and rejects wildcard peers.
-The complete source passes 78 host-enabled offline tests and syntax checks.
+The complete source passes 82 host-enabled offline tests and syntax checks.
 Tests cover wrong-pair rejection, pre-activation history/push filtering, checkpoint
 preservation, private quote isolation, queued-reply revocation and
 unchanged global owner/group-enrollment authority.
@@ -22,21 +22,21 @@ approved deployment, admission and fresh real peer message; see
 [LIVE-TEST.md](LIVE-TEST.md#private-chat-allowlist). The checkpoint below describes
 the loaded implementation, not this source update.
 
-### First native-tag activation
+### Owner one-turn access and explicit group management
 
-Group policy changes use the host's published dynamic-read reload declaration.
-Other channel changes retain a channel-scoped restart. The enrollment adapter
-waits up to five seconds for the exact saved activation fence to appear in the
-published runtime policy before admitting the first tag. Abort, owner revocation,
-disabled rooms, superseded fences and publication timeout fail closed; saved
-fences remain available for connection recovery.
+Unlisted owner mentions admit only the exact current request/reply, without room
+persistence or history recovery. Only the agent's explicit current-group tool can
+persist an allowlist entry, with trusted owner/account/route and invocation checks
+at discovery, asynchronous handoffs and locked-draft publication. Group policy is
+read dynamically at queue, turn, typing, media and send time. Persisted new room
+fences start at approval rather than replaying the triggering owner request.
 
-An isolated run against the installed Gateway reload planner confirmed that
-room-only changes request neither plugin replacement nor channel/Gateway restart.
-Delayed immutable-snapshot tests admit the first owner tag and a member's tag
-without reconnecting; old requests remain fenced. These source changes are not
-loaded. Immediate first-tag acceptance still needs a fresh unlisted-room test
-after an approved deployment.
+All 82 host-enabled offline tests and syntax checks passed. Tests include ordinary
+owner mention without config mutation, blocked member/untagged traffic, per-turn
+reply/media/typing scope, owner revocation before delivery, management-tool
+wrong-context/extra-argument rejection, draft revocation, delayed publication,
+timeout, cancellation, idempotence and the real shared enrollment core. The
+explicit management operation waits for published activation. These source changes are not yet loaded; fresh platform events remain required.
 
 ## Deployed implementation
 
@@ -64,7 +64,7 @@ or peer notification was created.
 
 The deployment checkpoint passed all 67 offline tests, including host enrollment
 and typing integrations, plus syntax checks. Portable runs skip the real-host
-SDK case; standalone runs also skip the two enrollment-core cases unless their
+SDK case; standalone runs also skip the enrollment-core tool case unless their
 host module is supplied. Test setup is described in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 | Capability | Observed evidence |
@@ -88,9 +88,10 @@ Original-file round-trip SHA-256:
 - Model-driven native read/edit/delete tool use in the trusted Teams chat.
 - Requester-observed typing during processing and expiry after completion,
   and visibility of the native presence dot.
-- Immediate first-tag activation in a genuinely unlisted room with the source
-  fix loaded, including while an unrelated long agent turn is active. Recovery
-  of the original owner/member tags and one routed reply has been verified.
+- An ordinary owner native mention in a genuinely unlisted room: one reply and
+  no allowlist write; another member stays blocked. Then an explicit owner
+  enrollment request must invoke the management tool, publish one exact entry
+  and permit a fresh member mention, including under unrelated active work.
 - A real message sent during a controlled connection gap, recovered once with
   one reply; long-running token refresh across an actual expiry boundary.
 - Client-side sending in the approved DM remains unresolved. API reply/readback

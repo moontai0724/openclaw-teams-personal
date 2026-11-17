@@ -186,94 +186,54 @@ for (const migration of ['legacy', 'existing']) test(`adding a group preserves o
   } finally { controller.abort(); await rm(root, { recursive: true, force: true }); }
 });
 
-const corePath = process.env.TEAMS_ENROLLMENT_CORE;
-test('owner push enrolls before rejection, admits the first tag, excludes old turns after restart and honors room revocation', { skip: !corePath }, async () => {
-  const { createScopedPolicy, createOwnerEnrollment } = await import('../plugin/enrollment.mjs');
-  const { enrollOwnerGroup } = await import(corePath!);
-  const root = await mkdtemp(join(tmpdir(), 'teams-owner-enrollment-'));
-  const bot = '8:live:.cid.synthetic';
-  const owner = '8:orgid:synthetic-owner';
-  const group = '19:synthetic-group@thread.v2';
-  const fresh = '19:synthetic-fresh@thread.v2';
-  const dm = '19:uni01_synthetic@thread.v2';
+
+test('unlisted owner mentions admit only the exact push without enrolling, caching or fetching room history', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'teams-owner-once-'));
+  const controller = new AbortController();
+  const bot = '8:live:.cid.synthetic', owner = '8:orgid:synthetic-owner';
+  const group = '19:synthetic-group@thread.v2', fresh = '19:synthetic-fresh@thread.v2', dm = '19:uni01_synthetic@thread.v2';
   const time = Date.now() + 1000;
-  const raw = (offset: number, from = owner, mentions = true) => ({ id: String(time + offset),
+  const raw = (offset: number, from = owner, mention = true) => ({ id: String(time + offset),
     conversationid: fresh, from, content: 'synthetic', messagetype: 'RichText/Html',
-    originalarrivaltime: new Date(time + offset).toISOString(), properties: { mentions: mentions ? [{ mri: bot }] : [] } });
+    originalarrivaltime: new Date(time + offset).toISOString(), properties: { mentions: mention ? [{ mri: bot }] : [] } });
   const base = { CHANNEL: 'teams-personal', CHAT: dm, GROUP: group, GROUPS: [group], BOT: bot, SENDER: owner,
     validConfig: (a: any) => a?.enabled === true, normalizedTarget: (s: string) => s,
-    admitted: (m: any) => m.conversationId === dm && m.fromId === owner,
-    groupAdmitted: (m: any) => m.conversationId === group && m.fromId !== bot && m.mentions.some((x: any) => x.mri === bot),
-  };
-  let cfg: any = { channels: { 'teams-personal': { enabled: true, enrollmentOwnerId: owner,
-    groups: { [group]: { requireMention: true, allowFrom: ['*'] } } } } };
-  const policy = createScopedPolicy(base, () => cfg);
+    admitted: () => false, groupAdmitted: () => false };
+  const cfg: any = { channels: { 'teams-personal': { enabled: true, enrollmentOwnerId: owner, groups: { [group]: {} } } } };
+  const before = structuredClone(cfg), policy = createScopedPolicy(base, () => cfg);
   const token = `header.${Buffer.from(JSON.stringify({ skypeid: 'live:.cid.synthetic' })).toString('base64url')}.signature`;
-  const admitted: any[] = [];
-  let writes = 0;
-  const enrollment = createOwnerEnrollment({ policy: base, current: () => cfg, sharedEnroll: enrollOwnerGroup,
-    assertAuthority() {}, mutate: async (options: any) => {
-      options.writeOptions.assertCurrent();
-      const draft = structuredClone(cfg);
-      const result = options.mutate(draft);
-      writes++;
-      // Host writes and runtime publication are separate edges; no reconnect.
-      setImmediate(() => { cfg = draft; });
-      return { result };
-    },
-  });
-  await writeFile(join(root, 'watermark.json'), JSON.stringify({ since: time - 5000, lastId: String(time - 5000),
-    group: { since: time - 5000, lastId: String(time - 5000) } }));
-  const run = async (phase: number) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-    let emitted = false;
-    class Socket extends EventTarget {
-      readyState = 1;
-      send() {}
-      close() { this.readyState = 3; this.dispatchEvent(new Event('close')); }
-      receive(data: string) { this.dispatchEvent(new MessageEvent('message', { data })); }
-      deliver(resource: any, resourceType = 'NewMessage') { this.receive(`3:::${JSON.stringify({ id: Number(resource.id), url: '/v4/f/synthetic/messaging', body: JSON.stringify({ resourceType, resource }) })}`); }
-    }
-    const socket = new Socket();
-    try {
-      await runReceiver({ policy, enroll: enrollment, stateDir: root, signal: controller.signal,
-        authProvider: async () => ({ token, expiresAt: Date.now() + 3600_000 }), assertAuthority() {}, status() {},
-        fetcher: async (url: URL, init: any) => init?.method === 'POST' ? new Response(null, { status: 201 }) :
-          Response.json({ messages: phase === 2 && decodeURIComponent(url.pathname).includes(fresh) ? [raw(-100), raw(3)] : [] }),
-        makeSocket: () => { setImmediate(() => { socket.receive('1::'); socket.receive(eventFrame('trouter.connected', [{ surl: 'https://trouter2-test.trouter.teams.microsoft.com/v4/f/synthetic/', ttl: 3600 }])); }); return socket; },
-        log: (event: string) => {
-          if (event !== 'scoped_history_repaired' || emitted) return;
-          emitted = true;
-          if (phase === 2) { controller.abort(); return; }
-          socket.deliver(raw(0, '8:orgid:other')); // Someone else's tag cannot enroll.
-          socket.deliver(raw(1, owner, false)); // Owner speech alone cannot enroll.
-          socket.deliver(raw(2), 'MessageUpdate'); // Edits cannot enroll.
-          socket.deliver(raw(3));
-          socket.deliver(raw(4, '8:orgid:member'));
-        },
-        admit: async (message: any) => {
-          admitted.push(message);
-          if (phase === 1 && admitted.length === 2) setImmediate(() => controller.abort());
-        },
-      });
-    } finally { clearTimeout(timeout); controller.abort(); }
-  };
+  await writeFile(join(root, 'watermark.json'), JSON.stringify({ since: time - 5000, lastId: String(time - 5000), group: { since: time - 5000, lastId: String(time - 5000) } }));
+  const admitted: any[] = [], reads: string[] = [];
+  let emitted = false;
+  class Socket extends EventTarget {
+    readyState = 1; send() {} close() { this.readyState = 3; this.dispatchEvent(new Event('close')); }
+    receive(data: string) { this.dispatchEvent(new MessageEvent('message', { data })); }
+    deliver(resource: any, resourceType = 'NewMessage') { this.receive(`3:::${JSON.stringify({ id: Number(resource.id), url: '/v4/f/synthetic/messaging', body: JSON.stringify({ resourceType, resource }) })}`); }
+  }
+  const socket = new Socket(), timeout = setTimeout(() => controller.abort(), 2000);
   try {
-    await run(1);
-    assert.equal(writes, 1);
-    assert.deepEqual(admitted.map(m => m.id), [String(time + 3), String(time + 4)]);
-    assert.equal(admitted[0].history.length, 0); // Rejected pre-enrollment content was not cached.
-    const firstState = JSON.parse(await readFile(join(root, 'realtime-state.json'), 'utf8'));
-    assert.equal(firstState.chats[fresh].baseline, String(time + 2));
-    await run(2);
-    assert.equal(admitted.at(-1).id, String(time + 3)); // Queue, not transport, owns durable dedup.
-    assert.equal(admitted.some(m => m.id === String(time - 100)), false);
-    const secondState = JSON.parse(await readFile(join(root, 'realtime-state.json'), 'utf8'));
-    assert.equal(secondState.endpointId, firstState.endpointId);
-    assert.equal(secondState.chats[group].baseline, firstState.chats[group].baseline);
-    cfg.channels['teams-personal'].groups[fresh].enabled = false;
-    await run(2); // A revoked room's checkpoint is retained without history fetch/dispatch.
-    assert.equal(admitted.length, 3);
-  } finally { await rm(root, { recursive: true, force: true }); }
+    await runReceiver({ policy, stateDir: root, signal: controller.signal,
+      authProvider: async () => ({ token, expiresAt: Date.now() + 3600_000 }), assertAuthority() {}, status() {},
+      fetcher: async (url: URL, init: any) => {
+        if (init?.method === 'POST') return new Response(null, { status: 201 });
+        reads.push(decodeURIComponent(url.pathname)); return Response.json({ messages: [] });
+      },
+      makeSocket: () => { setImmediate(() => { socket.receive('1::'); socket.receive(eventFrame('trouter.connected', [{ surl: 'https://trouter2-test.trouter.teams.microsoft.com/v4/f/synthetic/', ttl: 3600 }])); }); return socket; },
+      log: (event: string) => {
+        if (event !== 'scoped_history_repaired' || emitted) return; emitted = true;
+        socket.deliver(raw(0, '8:orgid:member'));
+        socket.deliver(raw(1, owner, false));
+        socket.deliver(raw(2), 'MessageUpdate');
+        socket.deliver(raw(3));
+        socket.deliver(raw(4, '8:orgid:member'));
+        socket.deliver(raw(5));
+      },
+      admit: async (message: any) => { admitted.push(message); if (admitted.length === 2) setImmediate(() => controller.abort()); },
+    });
+    assert.deepEqual(admitted.map(m => m.id), [String(time + 3), String(time + 5)]);
+    assert.equal(admitted.every(m => m.history === undefined && m.quote === undefined), true);
+    assert.equal(reads.some(path => path.includes(fresh)), false);
+    assert.equal(JSON.parse(await readFile(join(root, 'realtime-state.json'), 'utf8')).chats[fresh], undefined);
+    assert.deepEqual(cfg, before); assert.equal(policy.targetAllowed(fresh), false);
+  } finally { clearTimeout(timeout); controller.abort(); await rm(root, { recursive: true, force: true }); }
 });

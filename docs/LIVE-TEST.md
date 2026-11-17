@@ -48,8 +48,9 @@ fence; earlier history may supply context but cannot open a new turn. Revoked
 room checkpoints remain state, not authorization. Malformed state fails closed.
 
 Account-wide socket events are filtered before context or model dispatch. Unknown
-rooms qualify only through the verified native-tag enrollment rule; no discovery
-history is fetched for unapproved rooms. Joining a room alone does not admit it.
+rooms qualify for a single request only through a verified owner native mention;
+no discovery history is fetched for unapproved rooms. Joining alone does not admit
+anything, and ordinary owner mentions do not persist a room allowlist entry.
 
 ## Private-chat allowlist
 
@@ -153,33 +154,54 @@ Teams. Disconnect/stop removes only this connector's endpoint. Manual overrides
 or other clients may affect combined status; abrupt process loss relies on native
 expiry. API availability alone does not establish requester-visible UI state.
 
-### Owner native-tag enrollment
+### Owner one-turn access and explicit group enrollment
 
-Configure `enrollmentOwnerId` only after explicitly verifying that Teams identity.
-The host policy requires it to match the approved sender; DM allowlisting alone
-is not proof of ownership. The bridge supplies the shared enrollment core and
-projects this channel-local role into its decision, leaving global owners intact.
+Configure `enrollmentOwnerId` only after verifying that Teams identity. It must
+match the host policy's approved sender; DM allowlisting alone does not prove
+ownership. Existing disabled channel/room policies remain authoritative.
 
-A qualifying event is a fresh original group `NewMessage` push from that identity
-with the bot's native MRI mention. Replies, commands, forwards, edits, history
-repair, plain names and join events do not qualify. Disabled channel/room policies
-are respected. Ordinary unmentioned traffic causes no extra persistence/API calls.
+An unlisted group's fresh original `NewMessage` push from that owner, containing
+the bot's native MRI mention, opens only that request and reply. Forwarded, edited,
+self, stale, other-sender and unmentioned events do not qualify. It creates no
+allowlist entry, history cache or transport cursor for that room. Native ingress
+owns exact-event deduplication. Later events are independently checked, including
+while the owner's first reply is running. The ordinary outbound/message and
+history tools remain restricted to persistently allowed rooms; the reply pipeline
+uses callbacks scoped to that single admitted event, including typing and files.
 
-Group policy is read from the published runtime snapshot at receive, queue and
-send time. Room-only changes publish dynamically without replacing the plugin or
-restarting the channel. Enrollment waits up to five seconds for its exact
-activation fence to publish; abort, revocation, replacement or timeout prevents
-admission. A timeout retains the saved fence for normal connection recovery.
+When the owner explicitly asks to persistently allow THIS group, the agent calls
+`teams_group_access(action: "allow-current-group")`. No group, account or sender
+argument is accepted. Trusted host sender/channel/account/current-conversation
+facts and invocation liveness gate discovery and every final write. The tool
+rechecks published policy and the locked config draft, and preserves disabled
+entries, other rooms, DMs, global owners and existing cursors. New room entries
+use `allowFrom: ['*']`, `requireMention: true` and approval-time `activatedAt`.
+Pre-approval requests are fenced; the already admitted owner request is not
+replayed. Existing room entries are unchanged.
 
-In a genuinely unlisted room, first send ordinary owner text and verify no
-admission. Then send the native tag. Verify one exact room entry with
-`allowFrom: ['*']`, `requireMention: true` and the trigger's `activationId` /
-`activatedAt`; confirm one ingress/model/reply without older replayed requests.
-Have another member tag the bot to verify ordinary member access. Repeat the
-first-tag check while an unrelated long agent turn is active; confirm there is
-no plugin-drain timeout or channel restart. Existing room, DM, endpoint and
-replay settings must remain intact. Use real events; do not remove
-an approved room or inject production events to manufacture this test.
+Room-only policy changes publish dynamically without plugin replacement or a
+channel restart. The management tool waits up to five seconds for the exact
+approval policy to publish. Abort, owner revocation, disabled rooms, superseded
+policy or a closed invocation stop the operation. A publication timeout reports
+`changed: true, active: false`; it is not permission to blindly repeat the write.
+
+For real acceptance in a genuinely unlisted room:
+
+1. Send ordinary owner text, another member's tag and an edit; verify no turn or
+   allowlist change. Use actual platform events, not injected production events.
+2. Send a normal owner native tag. Verify one scoped turn/reply, no new room
+   entry, no room history read and no duplicate on normal recovery. Another
+   member's tag must still be blocked, even during the owner's active turn.
+3. As owner, explicitly tag and ask to add THIS group. Verify the model invokes
+   `teams_group_access`, one exact entry publishes, and the reply reports the
+   observed result. Then verify another member can tag the bot for one reply.
+4. Repeat under unrelated active agent work; check no plugin-drain timeout or
+   channel restart. Preserve endpoint identity and all pre-existing replay state.
+
+Do not remove an approved room or replay historical requests to manufacture a
+fresh-room test. Revocation, wrong sender/account, cross-group parameters and
+retained-tool invocation are covered by offline tests; real policy changes for
+such tests require separate exact authorization.
 
 ## Receive-only CLI
 

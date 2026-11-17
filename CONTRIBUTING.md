@@ -27,8 +27,8 @@ connector's endpoint identity and replay state.
 
 The deployment bridge injects the host's shared `enrollOwnerGroup` core.
 Set `TEAMS_ENROLLMENT_CORE` to that module's absolute path when running `npm test`
-to include the two host-core adapter/receiver integration cases. Without it those
-two cases are explicitly skipped. The module is executable code; use a trusted file.
+to include the host-core management-tool integration case. Without it that
+case is explicitly skipped. The module is executable code; use a trusted file.
 
 Set `TEAMS_TYPING_SDK` to the installed host SDK `channel-outbound.js` absolute
 path to exercise typing keepalive/cleanup and the circuit breaker with mocked
@@ -37,7 +37,7 @@ channel tests use built-in APIs and remain enabled.
 
 ## Deployment contract
 
-The bridge bundles source into the host integration and declares `teams_chat` in
+The bridge bundles source into the host integration and declares `teams_chat` and `teams_group_access` in
 `contracts.tools`. Keep that declaration aligned with registered tool names so
 the host can accept tool registration. Deployment targets, configuration changes
 and plugin reloads require the operator's authorization. Follow

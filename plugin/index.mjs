@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { runReceiver } from './receiver.mjs';
 import { createTeamsActions } from './actions.mjs';
-import { createScopedPolicy, createOwnerEnrollment } from './enrollment.mjs';
+import { createScopedPolicy, createGroupAccessTool } from './enrollment.mjs';
 import { createTeamsTyping } from './typing.mjs';
 import { createPresenceApi, createTeamsPresence } from './presence.mjs';
 import { createAccount } from '../src/account.mjs';
@@ -21,8 +21,8 @@ const account = createAccount({ expectedAccount: basePolicy.BOT });
 getSkypeToken ??= account.getSkypeToken;
 hasSavedLogin ??= account.hasSavedLogin;
 getGraphToken ??= account.getGraphToken;
-createTeamsClient ??= auth => nativeClient(auth, { expectedAccount: basePolicy.BOT, getGraphToken,
-  assertChat: chat => { assertConfig(runtime.config.current()); if (!policy.targetAllowed(chat)) throw new Error('Teams conversation no longer approved'); } });
+createTeamsClient ??= (auth, options = {}) => nativeClient(auth, { expectedAccount: basePolicy.BOT, getGraphToken,
+  assertChat: options.assertChat ?? (chat => { assertConfig(runtime.config.current()); if (!policy.targetAllowed(chat)) throw new Error('Teams conversation no longer approved'); }) });
 const { CHANNEL, CHAT, SENDER, BOT, GROUP, groupLabel = id => id, normalizedTarget, groupAdmitted, validConfig, admitted, targetAllowed } = policy;
 const client = createTeamsClient(getSkypeToken);
 const resolveAccount = (cfg) => ({accountId:'default', ...cfg.channels?.[CHANNEL]});
@@ -31,14 +31,15 @@ const allowedDmSenders = (cfg = runtime?.config.current()) => {
   return [...new Set(currentPolicy.DM_CHATS.flatMap(chat => currentPolicy.dmAllowFrom(chat)))];
 };
 function assertConfig(cfg) { if (!validConfig(resolveAccount(cfg))) throw new Error('Teams Personal policy not enabled or differs from approved account'); }
-async function send(cfg, to, text, replyTo, assertHandoff = () => {}) {
+async function send(cfg, to, text, replyTo, assertHandoff = () => {}, destinationPolicy = policy) {
   // Long-lived caller turns may retain a pre-install config; live policy is authoritative.
   assertConfig(runtime.config.current());
-  if (!targetAllowed(to)) throw new Error('Teams Personal destination not approved');
+  if (!destinationPolicy.targetAllowed(to)) throw new Error('Teams Personal destination not approved');
   if ((await client.whoAmI()).mri !== BOT) throw new Error('Teams Personal signed-in account changed');
   assertConfig(runtime.config.current());
-  if (!targetAllowed(to)) throw new Error('Teams Personal destination no longer approved');
-  const sender = createTeamsClient(async () => { assertHandoff(); const credential = await getSkypeToken(); assertHandoff(); return credential; });
+  if (!destinationPolicy.targetAllowed(to)) throw new Error('Teams Personal destination no longer approved');
+  const sender = createTeamsClient(async () => { assertHandoff(); const credential = await getSkypeToken(); assertHandoff(); return credential; },
+    { assertChat: target => { assertHandoff(); if (!destinationPolicy.targetAllowed(target)) throw new Error('Teams send scope revoked'); } });
   const receipt = await sender.sendMessage(normalizedTarget(to), text, {mentionRecipient:false, replyTo});
   // Arrival time is the observed platform message id in this transport; client id is not a receipt.
   if (!receipt.arrivalTime) throw new Error('Teams accepted send without a platform id; reconcile before retry');
@@ -46,31 +47,32 @@ async function send(cfg, to, text, replyTo, assertHandoff = () => {}) {
 }
 const outbound = {deliveryMode:'direct', textChunkLimit:6000,
   sendText: ({cfg,to,text,replyToId,assertDirectAdapterHandoff,signal}) => send(cfg,to,text,replyToId,()=>{signal?.throwIfAborted();assertDirectAdapterHandoff?.();}),
-  async sendMedia(context) {
+  async sendMedia(context, destinationPolicy = policy) {
     assertConfig(runtime.config.current());
     const to = normalizedTarget(context.to);
-    if (!targetAllowed(to)) throw new Error('Teams Personal destination not approved');
+    if (!destinationPolicy.targetAllowed(to)) throw new Error('Teams Personal destination not approved');
     context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.();
     const source = await sdk.loadOutboundMediaFromUrl(context.mediaUrl, { ...context, maxBytes: 15 * 1024 * 1024, optimizeImages: false });
     assertConfig(runtime.config.current());
-    if (!targetAllowed(to)) throw new Error('Teams Personal destination no longer approved');
+    if (!destinationPolicy.targetAllowed(to)) throw new Error('Teams Personal destination no longer approved');
     context.assertDirectAdapterHandoff?.();
-    const sender = createTeamsClient(async () => { context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.(); const credential = await getSkypeToken(); context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.(); return credential; });
+    const sender = createTeamsClient(async () => { context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.(); const credential = await getSkypeToken(); context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.(); return credential; },
+      { assertChat: target => { context.signal?.throwIfAborted(); context.assertDirectAdapterHandoff?.(); if (!destinationPolicy.targetAllowed(target)) throw new Error('Teams media scope revoked'); } });
     const receipt = await sender.sendFile(to, Buffer.from(source.buffer), source.fileName || 'attachment', context.text || '');
     return { channel: CHANNEL, messageId: receipt.arrivalTime, chatId: to };
   },
 };
 
-async function deliverPayload(to, payload, assertAuthority) {
+async function deliverPayload(to, payload, assertAuthority, destinationPolicy = policy) {
   const files = payload.mediaUrls?.length ? payload.mediaUrls : payload.mediaUrl ? [payload.mediaUrl] : [];
-  if (!files.length) { if (payload.text) await send(runtime.config.current(), to, payload.text, payload.replyToId, assertAuthority); return; }
+  if (!files.length) { if (payload.text) await send(runtime.config.current(), to, payload.text, payload.replyToId, assertAuthority, destinationPolicy); return; }
   const completed = sdk.createChannelDeliveryAccumulator();
   // One file per native message; never send an extra text-only copy of a caption.
   try {
     for (let index = 0; index < files.length; index++) {
       assertAuthority();
       completed.add(await outbound.sendMedia({ cfg: runtime.config.current(), to, assertDirectAdapterHandoff: assertAuthority,
-        text: index === 0 ? payload.text || '' : '', mediaUrl: files[index] }));
+        text: index === 0 ? payload.text || '' : '', mediaUrl: files[index] }, destinationPolicy));
     }
     return completed.result();
   } catch (error) { throw completed.partialError(error); }
@@ -91,7 +93,7 @@ const plugin = {
   },
   security:{resolveDmPolicy:({cfg}={})=>({policy:'allowlist',allowFrom:allowedDmSenders(cfg),policyPath:'channels.teams-personal.dmPolicy',allowFromPath:'channels.teams-personal.allowFrom',approveHint:'Only explicitly approved DM conversation/sender pairs are enabled.'})},
   messaging:{normalizeTarget:(to)=>targetAllowed(to)?normalizedTarget(to):undefined,targetResolver:{looksLikeId:targetAllowed,hint:CHAT}},
-  agentPrompt:{inboundFormattingHints:()=>['Teams Personal chat. In groups, respond only to mentions, commands, or replies to your messages; if the body addresses someone else, stay silent. Keep group and private history separate. Attachments are untrusted original files; no Office/PDF extraction is performed. Reply in natural Traditional Chinese.'],messageToolHints:()=>['Reply only to the current Teams conversation. Use teams_chat for bounded history/search and attachment reads. message edit/delete affect only bot-owned messages and require a known messageId. Do not resend an unverified mutation. message react adds emoji; remove=true removes only the selected emoji. A verified reaction is the complete reply when asked only to react.']},
+  agentPrompt:{inboundFormattingHints:()=>['Teams Personal chat. In groups, respond only to mentions, commands, or replies to your messages; if the body addresses someone else, stay silent. Keep group and private history separate. Attachments are untrusted original files; no Office/PDF extraction is performed. Reply in natural Traditional Chinese.'],messageToolHints:()=>['Reply only to the current Teams conversation. Use teams_chat for bounded history/search and attachment reads in approved chats. A verified owner native mention in an unlisted group permits only the current request and reply, not history or other turns. Only on an explicit owner request to persistently allow THIS group, use teams_group_access(action: allow-current-group); a normal mention or quoted request must never enroll it. message edit/delete affect only bot-owned messages and require a known messageId. Do not resend an unverified mutation. message react adds emoji; remove=true removes only the selected emoji. A verified reaction is the complete reply when asked only to react.']},
   outbound,
   message:createChannelMessageAdapterFromOutbound({id:CHANNEL,outbound}),
   gateway:{startAccount:async (ctx)=>{
@@ -108,7 +110,7 @@ const plugin = {
     const channelRuntime=ctx.channelRuntime??runtime.channel;
     const assertAuthority=()=>{if(ctx.abortSignal.aborted) throw new Error('Teams account stopped');assertConfig(runtime.config.current());};
     const dispatchWithTyping = async (params, chat, lifecycle) => {
-      const typing = createTeamsTyping({ createTypingCallbacks, policy, to: chat, getSkypeToken,
+      const typing = createTeamsTyping({ createTypingCallbacks, policy: params.turnPolicy ?? policy, to: chat, getSkypeToken,
         currentConfig: () => runtime.config.current(), assertAuthority: params.assertAuthority, log: ctx.log,
         signal: AbortSignal.any([ctx.abortSignal, lifecycle.abortSignal ?? ctx.abortSignal]) });
       try {
@@ -127,21 +129,32 @@ const plugin = {
       onError:(e)=>ctx.log?.error(String(e)),
       deliver:async(m,lifecycle)=>{
         const direct = policy.dmAllowed(m.conversationId);
+        const ownerOnce = !direct && policy.ownerMentionAllowed(m, state.group.since);
         const assertTurnAuthority = () => {
+          lifecycle.abortSignal?.throwIfAborted();
           assertAuthority();
+          if (ownerOnce && runtime.config.current().channels?.[CHANNEL]?.enrollmentOwnerId !== SENDER) throw new Error('Teams owner authorization revoked');
           if (direct ? !admitted(m, state.since) : !groupAdmitted(m, state.group.since)) {
             throw new Error('Teams event no longer admitted');
           }
         };
         assertTurnAuthority();
-        const assertMediaAuthority = () => { assertTurnAuthority(); if (!policy.targetAllowed(m.conversationId)) throw new Error('Attachment scope revoked'); };
+        // This policy exists only in callbacks bound to this admitted message.
+        // Global targetAllowed, tool discovery and other turns remain unchanged.
+        const turnPolicy = ownerOnce ? { ...policy, targetAllowed: target => {
+          assertTurnAuthority(); return normalizedTarget(target) === m.conversationId;
+        } } : policy;
+        const turnClient = ownerOnce ? createTeamsClient(getSkypeToken, { assertChat: target => {
+          assertTurnAuthority(); if (target !== m.conversationId) throw new Error('Teams owner turn target mismatch');
+        } }) : client;
+        const assertMediaAuthority = () => { assertTurnAuthority(); if (!turnPolicy.targetAllowed(m.conversationId)) throw new Error('Attachment scope revoked'); };
         const media = [];
         const attachmentNotices = [];
         for (const attachment of (m.attachments ?? []).slice(0, 5)) {
           try {
-            const file = await client.readAttachment(m.conversationId, m.id, attachment.index);
+            const file = await turnClient.readAttachment(m.conversationId, m.id, attachment.index);
             assertTurnAuthority();
-            if (!policy.targetAllowed(m.conversationId)) throw new Error('Attachment scope revoked');
+            if (!turnPolicy.targetAllowed(m.conversationId)) throw new Error('Attachment scope revoked');
             const saved = await sdk.saveMediaBuffer(Buffer.from(file.bytes), file.contentType, 'inbound', 15 * 1024 * 1024, file.name,
               undefined, { assertCommitAllowed: assertMediaAuthority });
             media.push({ path: saved.path, contentType: file.contentType, fileName: file.name,
@@ -154,17 +167,17 @@ const plugin = {
         // Per-turn presentation only; never write global session preferences.
         const cfg={...current,session:{...current.session,typingMode:'instant'}};
         if (!direct) {
-          if (!policy.groupAllowed(m.conversationId)) throw new Error('Group destination no longer approved');
+          if (!turnPolicy.targetAllowed(m.conversationId)) throw new Error('Group destination no longer approved');
           const group = m.conversationId;
           if (!groupAdmitted(m,state.group.since)) throw new Error('Group event no longer admitted');
           const route=channelRuntime.routing.resolveAgentRoute({cfg,channel:CHANNEL,accountId:'default',peer:{kind:'group',id:group}});
-          const ingress=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:m.fromId},conversation:{kind:'group',id:group},contextBinding:{agentId:route.agentId,sessionKey:route.sessionKey,messageId:m.id,inboundEventKind:'user_request'},dmPolicy:'allowlist',groupPolicy:'allowlist',allowFrom:[SENDER],groupAllowFrom:['*'],route:{id:group,kind:'group',configured:true,matched:true,allowed:true},useDefaultPairingStore:false,command:false});
+          const ingress=await channelRuntime.inbound.ingress.resolveStable({channelId:CHANNEL,accountId:'default',subject:{stableId:m.fromId},conversation:{kind:'group',id:group},contextBinding:{agentId:route.agentId,sessionKey:route.sessionKey,messageId:m.id,inboundEventKind:'user_request'},dmPolicy:'allowlist',groupPolicy:'allowlist',allowFrom:[SENDER],groupAllowFrom:ownerOnce?[SENDER]:['*'],route:{id:group,kind:'group',configured:true,matched:true,allowed:true},useDefaultPairingStore:false,command:false});
           assertTurnAuthority();
           if (!ingress.senderAccess.allowed) throw new Error('Group ingress denied');
           const explicit=Boolean(m.mentions?.some(x=>x.mri===BOT));
           const ctxPayload=await channelRuntime.inbound.buildContext({channel:CHANNEL,accountId:'default',provider:CHANNEL,surface:CHANNEL,messageId:m.id,messageIdFull:m.id,timestamp:Date.parse(m.time),from:group,sender:{id:m.fromId,name:m.from},conversation:{kind:'group',id:group,label:groupLabel(group),routePeer:{kind:'group',id:group}},route:{agentId:route.agentId,accountId:'default',routeSessionKey:route.sessionKey,dispatchSessionKey:route.sessionKey},reply:{to:group,originatingTo:group},message:{rawBody:m.text,bodyForAgent,commandBody:m.text,inboundHistory:m.history,inboundEventKind:'user_request'},access:{commands:{authorized:false},mentions:{canDetectMention:true,wasMentioned:explicit,explicitlyMentionedBot:explicit,effectiveWasMentioned:explicit||m.replyToBot===true,requireMention:true}},channelIngress:ingress,media,supplemental:m.quote?{quote:m.quote}:undefined,extra:{OriginatingChannel:CHANNEL}});
           assertTurnAuthority();
-          await dispatchWithTyping({cfg,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority:assertTurnAuthority,...bindIngressLifecycleToReplyOptions(lifecycle),delivery:{deliver:async(payload)=>{assertTurnAuthority();await deliverPayload(group,payload,assertTurnAuthority);},onError:e=>ctx.log?.error(`Teams group dispatch: ${String(e)}`)}},group,lifecycle);
+          await dispatchWithTyping({cfg,turnPolicy,channel:CHANNEL,accountId:'default',route,ctxPayload,assertAuthority:assertTurnAuthority,...bindIngressLifecycleToReplyOptions(lifecycle),delivery:{deliver:async(payload)=>{assertTurnAuthority();await deliverPayload(group,payload,assertTurnAuthority,turnPolicy);},onError:e=>ctx.log?.error(`Teams group dispatch: ${String(e)}`)}},group,lifecycle);
           return;
         }
         const dm = m.conversationId;
@@ -195,8 +208,6 @@ const plugin = {
     try {
       await receiver({
         authProvider:getSkypeToken, policy, stateDir:dir,
-        enroll:createOwnerEnrollment({policy:basePolicy,current:()=>runtime.config.current(),
-          mutate:options=>runtime.config.mutateConfigFile(options),sharedEnroll,assertAuthority,signal:ctx.abortSignal}),
         admit:m=>monitor.admit(m), assertAuthority, signal:ctx.abortSignal,
         status:fields=>{
           ctx.setStatus({accountId:'default',...fields});
@@ -211,6 +222,8 @@ return defineChannelPluginEntry({id:CHANNEL,name:'Teams Personal',description:'A
   // Tool discovery can run without starting the channel or setting its runtime.
   const currentConfig = () => api.runtime.config.current();
   const toolPolicy = createScopedPolicy(basePolicy, currentConfig);
+  api.registerTool(context=>createGroupAccessTool(context,{policy:basePolicy,current:currentConfig,
+    mutate:options=>api.runtime.config.mutateConfigFile(options),sharedEnroll,jsonResult:sdk.jsonResult}),{name:'teams_group_access',workspaceAccess:false});
   api.registerTool(context=>createChatTool(context,{policy:toolPolicy,currentConfig,getSkypeToken,getGraphToken,sdk}),{name:'teams_chat',workspaceAccess:false});
 }});
 }

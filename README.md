@@ -26,7 +26,7 @@ See [development](CONTRIBUTING.md) for checks and host integration tests, and
 | Files | Original upload/download, including images, through host media storage |
 | Typing | Native controls refreshed every four seconds during addressed turns |
 | Presence | Available endpoint while connected, with a 60-second activity refresh |
-| Group enrollment | A verified owner's fresh native bot mention can admit one exact new room |
+| Group access | Verified owner mentions allow one current request; explicit owner requests use a current-group allowlist tool |
 
 Only authorized chats reach context and ingress. Group turns require a native
 mention, a verified reply to the bot or a command. Untagged messages supply recent
@@ -34,10 +34,17 @@ context; edits update that context without starting another turn. Each chat has
 its own route, session and reply destination. Group history is bounded to 100
 cached messages and 50 entries / 20,000 text characters per prompted window.
 
-Room policy uses an exact allowlist. Enrollment requires an explicitly verified
-channel-local owner identity; it is disabled until configured. A qualifying tag
-admits that room for all members with mention/reply gating. Disabled entries stay
-disabled, and ordinary chat access grants no administrative authority.
+Room policy uses an exact allowlist and an explicitly verified channel-local
+`enrollmentOwnerId`. In an unlisted room, a fresh native mention by that owner
+admits only the current request and its reply. It creates no room entry, history
+cache or ongoing member access. Other senders and disabled rooms remain blocked.
+
+Only when the owner explicitly asks to add the current group does the agent call
+`teams_group_access(action: "allow-current-group")`. The tool rechecks trusted
+sender/current-group context and live owner policy at the final write. It adds
+that exact room with all-member access and mention gating, starting at approval
+time. Other rooms, DMs and global owners are unchanged. Quoted/file content and
+ordinary mentions are not instructions to enroll.
 
 ## Private-chat allowlist
 
@@ -50,7 +57,7 @@ Both conversation and sender must match. Each DM has isolated routing, session
 history and reply destination. Activation fences prevent earlier messages from
 opening turns. Revocation is checked during receipt, queued dispatch, typing,
 media handling and reply delivery. DM permission grants neither global ownership
-nor owner-tag group enrollment. See [configuration and acceptance](docs/LIVE-TEST.md#private-chat-allowlist).
+nor group-management permission. See [configuration and acceptance](docs/LIVE-TEST.md#private-chat-allowlist).
 
 ## Account setup
 
@@ -74,7 +81,7 @@ The host `message` tool supports send/read, explicit bot-owned edit/delete,
 `react` and `emoji-list`. Message mutations require the trusted conversation and
 account; unverified outcomes require readback before retrying.
 
-`teams_chat` is available in the current trusted Teams conversation. Its actions
+`teams_chat` is available in the current trusted, allowlisted Teams conversation. Its actions
 are `read`, `search`, `files`, `read-file` and `mark-read`. Search scans bounded
 chat history. Reading leaves the read horizon unchanged; marking read is explicit.
 Cross-chat search and account/group administration are outside this interface.

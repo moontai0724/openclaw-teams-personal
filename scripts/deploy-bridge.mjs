@@ -63,7 +63,7 @@ export default createTeamsChannel({ policy, sharedEnroll,
     const manifestPath = join(dirname(target), 'openclaw.plugin.json');
     manifest.description = 'Independent Teams personal account, realtime chat and scoped file/message tools';
     manifest.contracts = { ...manifest.contracts,
-      tools: [...new Set([...(manifest.contracts?.tools ?? []), 'teams_chat'])] };
+      tools: [...new Set([...(manifest.contracts?.tools ?? []), 'teams_chat', 'teams_group_access'])] };
     await writeFile(manifestPath + '.tmp', JSON.stringify(manifest, null, 2) + '\n', { mode: 0o644 });
     await rename(manifestPath + '.tmp', manifestPath);
     await writeFile(target + '.tmp', source, { mode: 0o644 });
