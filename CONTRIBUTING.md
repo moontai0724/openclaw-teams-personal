@@ -25,3 +25,7 @@ Set `TEAMS_TYPING_SDK` to the installed host SDK `channel-outbound.js` absolute
 path to exercise the real typing keepalive/cleanup and circuit breaker with mocked
 timers. This integration case is explicitly skipped without the host SDK; no SDK
 package is installed. Typing sender/channel tests remain dependency-free.
+
+The deployment script declares `teams_chat` in the host manifest `contracts.tools`.
+Keep that declaration aligned with registered tool names; otherwise the host
+rejects tool registration even while the channel connects successfully.
