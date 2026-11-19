@@ -40,6 +40,17 @@ by its reserved `clientmessageid` before retrying. Edit/delete verifies bot
 authorship and reads back the affected message. Reaction actions use the bot's
 selected emoji key and verify its own resulting reaction.
 
+### Text formatting
+
+The OpenClaw bridge supplies its shared Markdown parser and renderer. The Teams
+channel uses the same formatter for text sends, edits, and image/file captions.
+It emits paragraphs and line breaks, bold/italic, and HTTP(S) anchors; authored
+HTML is escaped. Headings become bold, lists retain their markers, tables become
+labeled rows, and code remains literal without Markdown fences. Markdown
+blockquotes use a text prefix so they are not confused with Teams native replies.
+Explicit mention syntax outside code produces the native readonly element and
+`properties.mentions`; quoted replies keep separate `qtdMsgs` metadata.
+
 ## Images and original files
 
 The web worker creates AMS objects with POST `v1/objects/`, a native object type,

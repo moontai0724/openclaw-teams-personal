@@ -35,6 +35,10 @@ path to exercise typing keepalive/cleanup and the circuit breaker with mocked
 timers. This case is explicitly skipped without the host SDK. Typing sender and
 channel tests use built-in APIs and remain enabled.
 
+Set `TEAMS_FORMAT_SDK` to the installed host SDK `text-chunking.js` absolute
+path to test Markdown formatting, native mentions, and formatted captions with
+the real parser and renderer. The fixture uses mocked Teams requests.
+
 ## Deployment contract
 
 The bridge bundles source into the host integration and declares `teams_chat` and `teams_group_access` in

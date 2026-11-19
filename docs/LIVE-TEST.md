@@ -109,6 +109,15 @@ message readback after each mutation. Send an original file, download it and
 compare bytes and filename; then remove the test messages when authorized.
 An ambiguous write requires reconciliation before any retry.
 
+For formatting, ask for a normal reply in the approved test chat, then test an
+explicit send, an edit of a bot-owned text message and a caption. Use bold,
+italic, paragraphs, a named HTTPS link, a list, a compact table, and a code
+example containing literal mention syntax. Read back the exact message IDs and
+check the recipient's Teams UI: the link must be clickable, code must remain
+literal without notifying anyone, and any native quoted reply or attachment must
+remain intact. Compare Teams web and the client used by the requester; a
+successful POST or readback alone does not prove rendering.
+
 For inline images, send one image-only message and one caption-plus-image message
 in the approved test chat. Read back each exact message: `RichText/Html`, one
 AMSImage `<img>`, `/views/imgo` and one AMS reference, with no duplicate caption

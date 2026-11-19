@@ -37,6 +37,7 @@ test('deployment declares chat and group-management tools without discarding oth
       const bridge = await readFile(join(plugin, 'index.mjs'), 'utf8');
       assert.match(bridge, /createTeamsChannel/);
       assert.match(bridge, /import \{ getImageMetadata \} from 'openclaw\/plugin-sdk\/media-runtime'/);
+      assert.match(bridge, /import \{ markdownToIR, renderMarkdownWithMarkers, sliceMarkdownIR \} from 'openclaw\/plugin-sdk\/text-chunking'/);
       assert.match(bridge, /loadOutboundMediaFromUrl, getImageMetadata, createChannelDeliveryAccumulator/);
     }
   } finally { await rm(root, { recursive: true, force: true }); }

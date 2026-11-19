@@ -1,11 +1,19 @@
 # Verification status
 
-Evidence checkpoints: 2026-11-17, through the 16:41 Asia/Taipei requester report.
+Evidence checkpoints are dated below (Asia/Taipei).
 These are observed checks and attributed reports, not a continuously refreshed
 health report. See [LIVE-TEST.md](LIVE-TEST.md) for
 procedures and [README.md](../README.md) for current capabilities.
 
 ## Source updates and activation status
+
+### Outbound Markdown formatting (2026-11-19)
+
+All 89 host-enabled tests and syntax checks passed. Offline checks cover
+formatted text and captions, escaped HTML, HTTP(S) links, mentions outside
+code, and preservation of quoted-reply and attachment metadata. A bridge built
+in an isolated directory imported successfully with the installed OpenClaw SDK.
+This update has not been deployed or verified in a Teams client.
 
 ### Native inline images
 

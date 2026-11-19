@@ -2,23 +2,9 @@ import { randomInt } from 'node:crypto';
 import { checkCredential } from './auth.ts';
 import { request, readJson, HttpError } from './http.ts';
 import { plainText } from './messages.ts';
+import { composeText, escapeHtml } from './format.mjs';
 
-export const escapeHtml = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-export function composeText(text) {
-  if (typeof text !== 'string' || !text.trim() || text.length > 20_000) throw new Error('A nonempty Teams message of at most 20000 characters is required');
-  const mentions = [];
-  const expression = /@\[([^\]\r\n]{1,100})\]\((8:[^\s()<>"']{1,200})\)/g;
-  let html = '', position = 0;
-  for (const hit of text.matchAll(expression)) {
-    html += escapeHtml(text.slice(position, hit.index));
-    const itemid = String(mentions.length);
-    mentions.push({ '@type': 'http://schema.skype.com/Mention', itemid, mri: hit[2], mentionType: 'person', displayName: hit[1] });
-    html += `<readonly contenteditable="false"><span itemtype="http://schema.skype.com/Mention" itemscope itemid="${itemid}">${escapeHtml(hit[1])}</span></readonly>`;
-    position = hit.index + hit[0].length;
-  }
-  html += escapeHtml(text.slice(position));
-  return { content: `<p>${html.replace(/\r?\n/g, '<br>')}</p>`, properties: mentions.length ? { mentions: JSON.stringify(mentions) } : {} };
-}
+export { composeText, escapeHtml };
 const reactionKeys = { '👍': 'like', '❤': 'heart', '😆': 'laugh', '😮': 'surprised', '😢': 'sad', '😠': 'angry',
   '👎': 'no', '🙌': 'handsinair', '🔥': 'fire', '✋': 'highfive', '👊': 'fistbump', '✔': '2714_heavycheckmark', '👀': '1f440_eyes' };
 export const REACTION_EMOJIS = Object.entries(reactionKeys).map(([emoji, key]) => ({ emoji, key }));
@@ -56,7 +42,7 @@ export function attachmentList(raw) {
   return attachments.slice(0, 20).map((value, index) => ({ ...value, index }));
 }
 export function createTeamsClient(getSkypeToken, { expectedAccount, assertChat = () => {}, fetcher = fetch, signal = new AbortController().signal,
-  getGraphToken, displayName = '日太' } = {}) {
+  getGraphToken, formatText, displayName = '日太' } = {}) {
   let self;
   const guard = chat => { if (typeof chat !== 'string' || !/^(?:19:[\w-]+@thread\.v2|8:[^\s/<>"']+)$/.test(chat)) throw new Error('Invalid Teams conversation'); assertChat(chat); signal.throwIfAborted(); };
   const credential = async () => { const value = await getSkypeToken(); if (expectedAccount) checkCredential(value, expectedAccount);
@@ -112,7 +98,7 @@ export function createTeamsClient(getSkypeToken, { expectedAccount, assertChat =
     return { arrivalTime: String(id), clientmessageid: body.clientmessageid, sent: true };
   }
   async function sendMessage(chat, text, { replyTo } = {}) {
-    guard(chat); const body = { ...composeText(text), messagetype: 'RichText/Html', contenttype: 'text', imdisplayname: displayName };
+    guard(chat); const body = { ...composeText(text, formatText), messagetype: 'RichText/Html', contenttype: 'text', imdisplayname: displayName };
     if (replyTo) {
       const raw = await rawMessage(chat, replyTo);
       const author = messageAuthor(raw);
@@ -156,7 +142,7 @@ export function createTeamsClient(getSkypeToken, { expectedAccount, assertChat =
     },
     sendMessage,
     async sendFile(chat, bytes, name, caption = '') {
-      const text = caption ? composeText(caption) : { content: '', properties: {} };
+      const text = caption ? composeText(caption, formatText) : { content: '', properties: {} };
       const { id, base } = await uploadAttachment(chat, bytes, name);
       // Explicit file mode preserves originals, including pictures.
       const content = `<URIObject type="File.1" uri="${base}"><Title>${escapeHtml(name)}</Title><Description></Description><OriginalName v="${escapeHtml(name)}"/><FileSize v="${bytes.length}"/></URIObject>`;
@@ -168,7 +154,7 @@ export function createTeamsClient(getSkypeToken, { expectedAccount, assertChat =
       guard(chat);
       if (!/^image\/(jpeg|png|gif|webp)$/.test(contentType) || !Number.isInteger(width) || !Number.isInteger(height)
         || width < 1 || height < 1 || width * height > 25_000_000) throw new Error('Unsupported image type or dimensions');
-      const text = caption ? composeText(caption) : { content: '', properties: {} };
+      const text = caption ? composeText(caption, formatText) : { content: '', properties: {} };
       const { id, base } = await uploadAttachment(chat, bytes, name, true);
       const scale = Math.min(1, 400 / width, 250 / height);
       const image = `<p><img src="${base}/views/imgo" itemtype="http://schema.skype.com/AMSImage" itemscope="${contentType.slice(6)}" width="${width * scale}" height="${height * scale}" alt="${escapeHtml(name)}" id="x_${id}" itemid="${id}"></p>`;
@@ -180,7 +166,7 @@ export function createTeamsClient(getSkypeToken, { expectedAccount, assertChat =
     async editMessage(chat, id, text) {
       const original = await ownMessage(chat, id);
       if (original.properties?.deletetime) throw new Error('Cannot edit a deleted message');
-      const body = composeText(text);
+      const body = composeText(text, formatText);
       body.content = (/<blockquote\b[\s\S]*?<\/blockquote>/i.exec(original.content || '')?.[0] || '') + body.content;
       if (original.properties?.qtdMsgs) body.properties.qtdMsgs = original.properties.qtdMsgs;
       try { await call(chat, `/${validId(id)}`, 'PUT', { ...body, id: String(id), type: 'Message', conversationid: chat,

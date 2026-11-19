@@ -1,17 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTeamsClient, composeText, attachmentList, trustedDownload } from '../src/client.mjs';
+import { createTeamsClient, attachmentList, trustedDownload } from '../src/client.mjs';
+
+import { createTeamsTextFormatter } from '../src/format.mjs';
 
 const chat = '19:synthetic@thread.v2';
 const bot = '8:live:synthetic';
 const id = '1794800000001';
+const formatSdk = process.env.TEAMS_FORMAT_SDK;
+const formatText = formatSdk ? createTeamsTextFormatter(await import(formatSdk)) : undefined;
 const auth = async () => ({ token: `x.${Buffer.from(JSON.stringify({ skypeid: 'live:synthetic' })).toString('base64url')}.x`, expiresAt: Date.now() + 3600_000 });
-function fixture({ lost = false, otherOwner = false, redirected = false } = {}) {
+function fixture({ lost = false, otherOwner = false, redirected = false, formatter = undefined } = {}) {
   const messages: any[] = [];
   const writes: any[] = [];
   let revoked = false;
   const client = createTeamsClient(auth, { expectedAccount: bot,
     assertChat: (value: string) => { if (value !== chat || revoked) throw new Error('scope'); },
+    formatText: formatter,
     fetcher: async (input: URL, options: any) => {
       assert.equal(options.redirect, 'error');
       const body = options.body && JSON.parse(options.body);
@@ -53,6 +58,31 @@ test('edit/readback retains a quote; delete is bot-only and verified', async () 
   assert.equal(notMine.writes.length, 0);
 });
 
+test('Markdown send, quote and edit preserve native mention and reply metadata', { skip: !formatText }, async () => {
+  const f = fixture({ formatter: formatText });
+  await f.client.replyToMessage(chat, id, '**完成** @[M & N](8:live:other) [文件](https://example.com/?a=1&b=2)\n\n*補充* <strong>literal</strong>');
+  const sent = f.writes[0];
+  assert.match(sent.content, /^<blockquote .*<\/blockquote><p><strong>完成<\/strong> <readonly/);
+  assert.match(sent.content, /<a href="https:\/\/example\.com\/\?a=1&amp;b=2">文件<\/a><\/p><p><em>補充<\/em> &lt;strong&gt;literal&lt;\/strong&gt;<\/p>$/);
+  assert.equal(JSON.parse(sent.properties.mentions)[0].displayName, 'M & N');
+  assert.equal(JSON.parse(sent.properties.qtdMsgs)[0].messageId, id);
+
+  const revised = '# 更新\n\n- 版本 `v2`\n- [x] 完成\n\n> 說明\n\n```text\n  @[User](8:live:other)\n\n  <tag>\n```\n\n`@[User](8:live:other)` [FTP](ftp://example.com)';
+  assert.equal((await f.client.editMessage(chat, id, revised)).verified, true);
+  const edited = f.writes[1];
+  assert.equal(edited.properties.qtdMsgs, sent.properties.qtdMsgs);
+  assert.equal(edited.properties.mentions, undefined);
+  assert.match(edited.content, /<strong>更新<\/strong>.*• 版本 v2.*完成.*› 說明/);
+  assert.match(edited.content, /&nbsp; @\[User\]\(8:live:other\)<br><br>&nbsp; &lt;tag&gt;/);
+  assert.doesNotMatch(edited.content, /<a |<readonly/);
+  assert.match(edited.content, /@\[User\]\(8:live:other\) FTP/);
+});
+
+test('Markdown tables render readable rows without raw table HTML', { skip: !formatText }, () => {
+  const table = '| 名稱 | 結果 |\n| --- | --- |\n| 測試 | *通過* |';
+  assert.equal(formatText!(table).content, '<p><strong>測試</strong><br>• 結果: <em>通過</em></p>');
+});
+
 test('history pagination, revoked scope and malformed IDs fail before credential disclosure/writes', async () => {
   const f = fixture({ redirected: true });
   await assert.rejects(f.client.getMessages(chat, { limit: 10 }), /Untrusted Teams endpoint/);
@@ -86,7 +116,7 @@ test('attachments retain original references and reject external image/download 
 test('original-file send uploads byte-identically, grants only this chat and does not retry writes', async () => {
   const original = Buffer.from([0, 1, 2, 255]);
   const calls: any[] = [];
-  const client = createTeamsClient(auth, { expectedAccount: bot, assertChat: (value: string) => assert.equal(value, chat),
+  const client = createTeamsClient(auth, { expectedAccount: bot, formatText, assertChat: (value: string) => assert.equal(value, chat),
     fetcher: async (url: URL, options: any) => {
       calls.push([url, options]);
       if (url.hostname === 'api.asm.skype.com' && options.method === 'POST') {
@@ -96,21 +126,21 @@ test('original-file send uploads byte-identically, grants only this chat and doe
       return Response.json({ OriginalArrivalTime: id });
     },
   });
-  assert.equal((await client.sendFile(chat, original, 'original.bin', 'caption')).arrivalTime, id);
+  assert.equal((await client.sendFile(chat, original, 'original.bin', formatText ? '**caption**' : 'caption')).arrivalTime, id);
   assert.equal(calls.length, 3);
   const message = JSON.parse(calls[2][1].body);
-  assert.match(message.content, /caption.*URIObject/);
+  assert.match(message.content, formatText ? /<strong>caption<\/strong><\/p><URIObject/ : /caption.*URIObject/);
   assert.match(message.content, /File\.1/);
   assert.deepEqual(message.amsreferences, ['synthetic-object']);
   await assert.rejects(client.sendFile(chat, original, '../unsafe.bin'), /filename/);
   assert.equal(calls.length, 3);
 });
 
-for (const caption of ['', 'Hi @[User](8:live:other) <caption>']) test(`inline image uses native AMS markup in one message: ${caption ? 'caption' : 'image only'}`, async () => {
+for (const caption of ['', 'Hi @[User](8:live:other) <caption>', '**格式說明**']) test(`inline image uses native AMS markup in one message: ${caption || 'image only'}`, { skip: caption.startsWith('**') && !formatText }, async () => {
   const original = Buffer.from('synthetic image bytes');
   const calls: any[] = [];
   let published: any;
-  const client = createTeamsClient(auth, { expectedAccount: bot,
+  const client = createTeamsClient(auth, { expectedAccount: bot, formatText,
     fetcher: async (url: URL, options: any) => {
       calls.push([url, options]);
       if (url.hostname === 'api.asm.skype.com' && options.method === 'POST') {
@@ -134,7 +164,9 @@ for (const caption of ['', 'Hi @[User](8:live:other) <caption>']) test(`inline i
   assert.match(published.content, /alt="a&amp;b.png"/);
   assert.doesNotMatch(published.content, /URIObject|File\.1/);
   assert.deepEqual(published.amsreferences, ['synthetic-image']);
-  if (caption) {
+  if (caption.startsWith('**')) {
+    assert.match(published.content, /^<p><strong>格式說明<\/strong><\/p><p><img/);
+  } else if (caption) {
     assert.match(published.content, /&lt;caption&gt;<\/p><p><img/);
     assert.equal(JSON.parse(published.properties.mentions)[0].mri, '8:live:other');
   } else assert.match(published.content, /^<p><img/);

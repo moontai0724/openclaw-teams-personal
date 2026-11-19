@@ -81,6 +81,11 @@ The host `message` tool supports send/read, explicit bot-owned edit/delete,
 `react` and `emoji-list`. Message mutations require the trusted conversation and
 account; unverified outcomes require readback before retrying.
 
+Outgoing replies, explicit sends, edits and attachment captions render Markdown
+as Teams rich text: bold, italic, HTTP(S) links and paragraph spacing. Headings
+use bold text, tables become readable rows, and code is sent as literal text.
+Raw HTML stays literal. Native mentions and quoted replies retain Teams metadata.
+
 `teams_chat` is available in the current trusted, allowlisted Teams conversation. Its actions
 are `read`, `search`, `files`, `read-file` and `mark-read`. Search scans bounded
 chat history. Reading leaves the read horizon unchanged; marking read is explicit.
